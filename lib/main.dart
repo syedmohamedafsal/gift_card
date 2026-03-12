@@ -32,9 +32,6 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────
-// Data model
-// ─────────────────────────────────────────
 enum _CardStyle { amazon, flipkart, swiggy, paytm, phonepe }
 
 class GiftCard {
@@ -59,9 +56,6 @@ class GiftCard {
   });
 }
 
-// ─────────────────────────────────────────
-// Screen
-// ─────────────────────────────────────────
 class WelcomeGiftScreen extends StatefulWidget {
   const WelcomeGiftScreen({super.key});
 
@@ -71,24 +65,29 @@ class WelcomeGiftScreen extends StatefulWidget {
 
 class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
     with TickerProviderStateMixin {
-  // fractional index: 0.0 = first card centered, 1.0 = second card centered…
-  double _currentPage = 2.0; // start at amazon (index 2)
+  double _currentPage = 2.0;
   late AnimationController _snapController;
   late Animation<double> _snapAnim;
-  double _dragStartX = 0;
-  double _dragDeltaX = 0;
   bool _isDraggingCard = false;
 
-  // vertical drag for activate
   bool _isDraggingDown = false;
   double _dragOffsetY = 0;
+
+  late AnimationController _activateController;
+  late Animation<double> _glowAnim;
+  late Animation<double> _cardSinkAnim;
+  bool _activated = false;
 
   late AnimationController _chevronController;
   late Animation<double> _chevronAnim;
 
+  // Bottom bar entry animation
+  late AnimationController _entryController;
+  late Animation<double> _entryAnim;
+
   static const double cardW = 185.0;
   static const double cardH = 268.0;
-  static const double cardSpacing = 220.0; // distance between card centers
+  static const double cardSpacing = 220.0;
 
   final List<GiftCard> cards = const [
     GiftCard(
@@ -159,6 +158,17 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
       setState(() => _currentPage = _snapAnim.value);
     });
 
+    _activateController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    _glowAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _activateController, curve: Curves.easeOut),
+    );
+    _cardSinkAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _activateController, curve: Curves.easeIn),
+    );
+
     _chevronController = AnimationController(
       duration: const Duration(milliseconds: 850),
       vsync: this,
@@ -166,12 +176,28 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
     _chevronAnim = Tween<double>(begin: 0.0, end: 7.0).animate(
       CurvedAnimation(parent: _chevronController, curve: Curves.easeInOut),
     );
+
+    // Entry animation — slides up + fades in on load
+    _entryController = AnimationController(
+      duration: const Duration(milliseconds: 900),
+      vsync: this,
+    );
+    _entryAnim = CurvedAnimation(
+      parent: _entryController,
+      curve: Curves.easeOutBack,
+    );
+    // Start entry after a short delay
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) _entryController.forward();
+    });
   }
 
   @override
   void dispose() {
     _snapController.dispose();
+    _activateController.dispose();
     _chevronController.dispose();
+    _entryController.dispose();
     super.dispose();
   }
 
@@ -187,14 +213,11 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
 
   void _onHorizontalDragStart(DragStartDetails d) {
     _snapController.stop();
-    _dragStartX = d.globalPosition.dx;
-    _dragDeltaX = 0;
     _isDraggingCard = true;
   }
 
   void _onHorizontalDragUpdate(DragUpdateDetails d) {
     if (!_isDraggingCard) return;
-    _dragDeltaX = d.globalPosition.dx - _dragStartX;
     setState(() {
       _currentPage = (_currentPage - d.delta.dx / cardSpacing).clamp(
         0,
@@ -215,218 +238,294 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
   }
 
   void _onVerticalDragUpdate(DragUpdateDetails d) {
-    setState(() {
-      _isDraggingDown = true;
-      _dragOffsetY += d.delta.dy;
-    });
+    if (d.delta.dy > 0) {
+      setState(() {
+        _isDraggingDown = true;
+        _dragOffsetY = (_dragOffsetY + d.delta.dy).clamp(0.0, 120.0);
+      });
+    }
   }
 
   void _onVerticalDragEnd(DragEndDetails d) {
     if (_dragOffsetY > 60) {
+      _triggerActivation();
+    } else {
+      setState(() {
+        _isDraggingDown = false;
+        _dragOffsetY = 0;
+      });
+    }
+  }
+
+  void _triggerActivation() async {
+    setState(() => _activated = true);
+    await _activateController.forward();
+    await Future.delayed(const Duration(milliseconds: 400));
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${cards[_centerIndex].brand} offer activated! 🎉'),
-          backgroundColor: cards[_centerIndex].accentColor,
+          backgroundColor: cards[_centerIndex].cardBg,
           behavior: SnackBarBehavior.floating,
         ),
       );
     }
+    await Future.delayed(const Duration(milliseconds: 200));
+    _activateController.reverse();
     setState(() {
+      _activated = false;
       _isDraggingDown = false;
       _dragOffsetY = 0;
     });
   }
 
-  double get _borderOpacity {
-    if (!_isDraggingDown || _dragOffsetY <= 0) return 1.0;
-    return (1.0 - (_dragOffsetY / 60.0)).clamp(0.2, 1.0);
+  double get _dragProgress {
+    if (_activated) return _cardSinkAnim.value;
+    return (_dragOffsetY / 80.0).clamp(0.0, 1.0);
   }
+
+  double get _borderOpacity => (1.0 - _dragProgress * 0.7).clamp(0.3, 1.0);
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // ── Top bar ──
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: () => Navigator.maybePop(context),
-                    child: const Icon(
-                      Icons.chevron_left,
-                      color: Colors.white70,
-                      size: 26,
+    return AnimatedBuilder(
+      animation: Listenable.merge([_activateController, _entryController]),
+      builder: (context, _) {
+        final double prog = _dragProgress;
+        final double entry = _entryAnim.value; // 0→1 on load
+
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          body: Stack(
+            children: [
+              // ── Expanding golden glow from bottom ──
+              if (prog > 0)
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Container(
+                      width: 40 + (prog * 400),
+                      height: 40 + (prog * 500),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(
+                          colors: [
+                            const Color(0xFFFFD700).withOpacity(0.55 * prog),
+                            const Color(0xFFFFD700).withOpacity(0.18 * prog),
+                            Colors.transparent,
+                          ],
+                          stops: const [0.0, 0.5, 1.0],
+                        ),
+                      ),
                     ),
                   ),
-                  const Spacer(),
-                  const Text(
-                    'T&Cs',
-                    style: TextStyle(
-                      color: Color(0xFFFFD700),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 12),
-
-            // ── Gift icon ──
-            _GiftBoxIcon(),
-
-            const SizedBox(height: 16),
-
-            // ── Title ──
-            const Text(
-              'Choose your\nwelcome gift',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 26,
-                fontWeight: FontWeight.w700,
-                height: 1.25,
-              ),
-            ),
-
-            const SizedBox(height: 32),
-
-            // ── Carousel ──
-            Expanded(
-              child: GestureDetector(
-                onHorizontalDragStart: _onHorizontalDragStart,
-                onHorizontalDragUpdate: _onHorizontalDragUpdate,
-                onHorizontalDragEnd: _onHorizontalDragEnd,
-                onVerticalDragUpdate: _onVerticalDragUpdate,
-                onVerticalDragEnd: _onVerticalDragEnd,
-                behavior: HitTestBehavior.opaque,
-                child: Stack(
-                  alignment: Alignment.center,
-                  clipBehavior: Clip.none,
-                  children: [
-                    // Side cards (behind border)
-                    ..._buildSideCards(),
-                    // Static gold border
-                    _buildStaticBorder(),
-                    // Center card (in front)
-                    _buildCenterCard(),
-                  ],
                 ),
-              ),
-            ),
 
-            // ── Dot indicators ──
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(cards.length, (i) {
-                  final bool active = i == _centerIndex;
-                  return AnimatedContainer(
-                    duration: const Duration(milliseconds: 250),
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    width: active ? 20 : 6,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: active
-                          ? const Color(0xFFFFD700)
-                          : Colors.white.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                  );
-                }),
-              ),
-            ),
-
-            // ── Chevrons ──
-            GestureDetector(
-              onVerticalDragUpdate: _onVerticalDragUpdate,
-              onVerticalDragEnd: _onVerticalDragEnd,
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 28),
+              SafeArea(
                 child: Column(
                   children: [
-                    AnimatedBuilder(
-                      animation: _chevronAnim,
-                      builder: (ctx, child) => Transform.translate(
-                        offset: Offset(0, _chevronAnim.value),
-                        child: child,
+                    // ── Top bar ──
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 14,
                       ),
-                      child: Column(
+                      child: Row(
                         children: [
-                          Icon(
-                            Icons.expand_more,
-                            color: const Color(0xFFFFD700).withOpacity(0.4),
-                            size: 22,
+                          GestureDetector(
+                            onTap: () => Navigator.maybePop(context),
+                            child: const Icon(
+                              Icons.chevron_left,
+                              color: Colors.white70,
+                              size: 26,
+                            ),
                           ),
-                          Icon(
-                            Icons.expand_more,
-                            color: const Color(0xFFFFD700),
-                            size: 22,
+                          const Spacer(),
+                          const Text(
+                            'T&Cs',
+                            style: TextStyle(
+                              color: Color(0xFFFFD700),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 6),
+
+                    const SizedBox(height: 12),
+                    _GiftBoxIcon(),
+                    const SizedBox(height: 16),
+
                     const Text(
-                      'Drag down to activate offer',
+                      'Choose your\nwelcome gift',
+                      textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: Color(0xFFFFD700),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
+                        color: Colors.white,
+                        fontSize: 26,
+                        fontWeight: FontWeight.w700,
+                        height: 1.25,
+                      ),
+                    ),
+
+                    const SizedBox(height: 32),
+
+                    // ── Carousel ──
+                    Expanded(
+                      child: GestureDetector(
+                        onHorizontalDragStart: _onHorizontalDragStart,
+                        onHorizontalDragUpdate: _onHorizontalDragUpdate,
+                        onHorizontalDragEnd: _onHorizontalDragEnd,
+                        onVerticalDragUpdate: _onVerticalDragUpdate,
+                        onVerticalDragEnd: _onVerticalDragEnd,
+                        behavior: HitTestBehavior.opaque,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          clipBehavior: Clip.none,
+                          children: [
+                            _buildStaticBorder(),
+                            ..._buildSideCards(),
+                            _buildCenterCard(prog),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // ── Dot indicators ──
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(cards.length, (i) {
+                          final bool active = i == _centerIndex;
+                          return AnimatedContainer(
+                            duration: const Duration(milliseconds: 250),
+                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                            width: active ? 20 : 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: active
+                                  ? const Color(0xFFFFD700)
+                                  : Colors.white.withOpacity(0.3),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                          );
+                        }),
+                      ),
+                    ),
+
+                    // ── Drag label ──
+                    GestureDetector(
+                      onVerticalDragUpdate: _onVerticalDragUpdate,
+                      onVerticalDragEnd: _onVerticalDragEnd,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Column(
+                          children: [
+                            AnimatedBuilder(
+                              animation: _chevronAnim,
+                              builder: (ctx, child) => Transform.translate(
+                                offset: Offset(0, _chevronAnim.value),
+                                child: child,
+                              ),
+                              child: Column(
+                                children: [
+                                  Icon(
+                                    Icons.expand_more,
+                                    color: const Color(
+                                      0xFFFFD700,
+                                    ).withOpacity(0.4),
+                                    size: 22,
+                                  ),
+                                  Icon(
+                                    Icons.expand_more,
+                                    color: const Color(0xFFFFD700),
+                                    size: 22,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            AnimatedDefaultTextStyle(
+                              duration: const Duration(milliseconds: 200),
+                              style: TextStyle(
+                                color: Color.lerp(
+                                  const Color(0xFFFFD700),
+                                  Colors.white,
+                                  prog,
+                                )!,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              child: Text(
+                                prog > 0.6
+                                    ? 'Release to activate!'
+                                    : 'Drag down to activate offer',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // ── Custom bottom bar with entry animation ──
+                    Transform.translate(
+                      offset: Offset(0, (1 - entry) * 80),
+                      child: Opacity(
+                        opacity: entry.clamp(0.0, 1.0),
+                        child: _WavePillBar(
+                          dragProgress: prog,
+                          isActive: _activated,
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  List<Widget> _buildSideCards() {
+    final List<Widget> result = [];
+    for (int i = 0; i < cards.length; i++) {
+      if (i == _centerIndex) continue;
+      final double slot = i - _currentPage;
+      if (slot.abs() > 1.8) continue;
+      result.add(_buildCardAtSlot(i, slot));
+    }
+    return result;
+  }
+
+  Widget _buildCenterCard(double prog) {
+    final double slot = _centerIndex - _currentPage;
+    final double dragDy =
+        _dragOffsetY.clamp(0.0, 80.0) +
+        (_activated ? _cardSinkAnim.value * 120 : 0);
+    final double sinkScale = (1.0 - prog * 0.08).clamp(0.88, 1.0);
+
+    return Transform.translate(
+      offset: Offset(slot * cardSpacing, dragDy),
+      child: Transform.scale(
+        scale: sinkScale,
+        child: GestureDetector(
+          onTap: () => _snapToIndex(_centerIndex),
+          child: _CardWidget(card: cards[_centerIndex]),
         ),
       ),
     );
   }
 
-  // ── Build all side cards ──
-  List<Widget> _buildSideCards() {
-    final List<Widget> result = [];
-    for (int i = 0; i < cards.length; i++) {
-      if (i == _centerIndex) continue;
-      final double slot = i - _currentPage; // how far from center
-      if (slot.abs() > 1.8) continue; // hide far cards
-
-      result.add(_buildCardAtSlot(i, slot, isCenter: false));
-    }
-    return result;
-  }
-
-  // ── Build center card ──
-  Widget _buildCenterCard() {
-    final double slot = _centerIndex - _currentPage;
-    final double dragDy = _isDraggingDown
-        ? _dragOffsetY.clamp(-20.0, 90.0)
-        : 0.0;
-
-    return Transform.translate(
-      offset: Offset(slot * cardSpacing, dragDy),
-      child: GestureDetector(
-        onTap: () => _snapToIndex(_centerIndex),
-        child: _CardWidget(card: cards[_centerIndex]),
-      ),
-    );
-  }
-
-  Widget _buildCardAtSlot(int index, double slot, {required bool isCenter}) {
-    // pendulum effect: side cards rotate based on their slot position
+  Widget _buildCardAtSlot(int index, double slot) {
     final double rotate = slot * 0.22;
     final double tx = slot * cardSpacing;
-    final double ty = slot.abs() * 18.0; // side cards drop slightly
+    final double ty = slot.abs() * 18.0;
     final double scale = (1.0 - slot.abs() * 0.08).clamp(0.84, 1.0);
-
     return Transform.translate(
       offset: Offset(tx, ty),
       child: Transform.rotate(
@@ -442,51 +541,202 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
     );
   }
 
-  // ── Static gold border ──
   Widget _buildStaticBorder() {
     final double opacity = _borderOpacity;
     return IgnorePointer(
-      child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 80),
-        opacity: opacity,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-              width: cardW + 28,
-              height: cardH + 28,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(28),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFFFFD700).withOpacity(0.55 * opacity),
-                    blurRadius: 32,
-                    spreadRadius: 4,
-                  ),
-                  // BoxShadow(
-                  //   color: const Color(0xFFFFD700).withOpacity(0.2 * opacity),
-                  //   blurRadius: 64,
-                  //   spreadRadius: 14,
-                  // ),
-                ],
-              ),
-            ),
-            Container(
-              width: cardW + 6,
-              height: cardH + 6,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(23),
-                border: Border.all(
-                  color: const Color(0xFFFFD700).withOpacity(opacity),
-                  width: 2.5,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            width: cardW + 28,
+            height: cardH + 28,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFFFD700).withOpacity(0.55 * opacity),
+                  blurRadius: 32,
+                  spreadRadius: 4,
                 ),
+              ],
+            ),
+          ),
+          Container(
+            width: cardW + 6,
+            height: cardH + 6,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(23),
+              border: Border.all(
+                color: const Color(0xFFFFD700).withOpacity(opacity),
+                width: 2.5,
               ),
             ),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Custom Wave-Pill Bottom Bar  ---|_____|---
+//  Shape: flat lines on sides, dips down in the center
+//  The pill glows gold when drag is in progress
+// ═══════════════════════════════════════════════════════════
+class _WavePillBar extends StatelessWidget {
+  final double dragProgress; // 0.0 → 1.0
+  final bool isActive;
+
+  const _WavePillBar({required this.dragProgress, required this.isActive});
+
+  @override
+  Widget build(BuildContext context) {
+    final Color lineColor = Color.lerp(
+      Colors.white.withOpacity(0.25),
+      const Color(0xFFFFD700).withOpacity(0.9),
+      dragProgress,
+    )!;
+
+    final List<BoxShadow> glowShadows = dragProgress > 0.2
+        ? [
+            BoxShadow(
+              color: const Color(0xFFFFD700).withOpacity(0.55 * dragProgress),
+              blurRadius: 16,
+              spreadRadius: 2,
+            ),
+          ]
+        : [];
+
+    return Container(
+      width: double.infinity,
+      height: 36,
+      padding: const EdgeInsets.only(bottom: 8),
+      child: CustomPaint(
+        painter: _WavePillPainter(
+          color: lineColor,
+          glowColor: const Color(0xFFFFD700).withOpacity(0.6 * dragProgress),
+          progress: dragProgress,
         ),
       ),
     );
   }
+}
+
+// ─────────────────────────────────────────
+// Painter: draws  ---|___|---  shape
+// ─────────────────────────────────────────
+class _WavePillPainter extends CustomPainter {
+  final Color color;
+  final Color glowColor;
+  final double progress;
+
+  const _WavePillPainter({
+    required this.color,
+    required this.glowColor,
+    required this.progress,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double cx = size.width / 2;
+    final double cy = size.height / 2;
+
+    // Dip depth grows slightly with drag progress
+    final double dipDepth = 10.0 + progress * 6.0;
+    // Pill width at the bottom of the dip
+    final double pillHalfW = 50.0;
+    // Where the curve starts/ends (x offset from center)
+    final double curveStartX = pillHalfW + 28.0;
+    // Flat line extends to this x from center
+    final double lineEndX = size.width * 0.5 - 10;
+
+    // ── Glow pass (draw wider, blurred stroke below) ──
+    if (progress > 0) {
+      final glowPaint = Paint()
+        ..color = glowColor
+        ..strokeWidth = 6.0
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+      canvas.drawPath(
+        _buildPath(cx, cy, dipDepth, pillHalfW, curveStartX, lineEndX, size),
+        glowPaint,
+      );
+    }
+
+    // ── Main stroke ──
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 2.8
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    canvas.drawPath(
+      _buildPath(cx, cy, dipDepth, pillHalfW, curveStartX, lineEndX, size),
+      paint,
+    );
+  }
+
+  Path _buildPath(
+    double cx,
+    double cy,
+    double dipDepth,
+    double pillHalfW,
+    double curveStartX,
+    double lineEndX,
+    Size size,
+  ) {
+    final path = Path();
+
+    // Left flat line:  start from left edge → to curve start
+    final double leftLineStart = cx - lineEndX;
+    final double leftCurveStart = cx - curveStartX;
+    final double rightCurveEnd = cx + curveStartX;
+    final double rightLineEnd = cx + lineEndX;
+
+    // Bottom of the dip
+    final double dipY = cy + dipDepth;
+    // Top of the flat lines
+    final double lineY = cy;
+
+    // Left flat line
+    path.moveTo(leftLineStart, lineY);
+    path.lineTo(leftCurveStart, lineY);
+
+    // Left curve going down into the dip
+    // Control point pulls the curve smoothly downward
+    path.cubicTo(
+      leftCurveStart + 20,
+      lineY, // cp1: stay flat briefly
+      cx - pillHalfW - 8,
+      dipY, // cp2: arrive at dip level
+      cx - pillHalfW,
+      dipY, // end: left edge of pill
+    );
+
+    // Pill bottom (straight line at dip)
+    path.lineTo(cx + pillHalfW, dipY);
+
+    // Right curve going back up
+    path.cubicTo(
+      cx + pillHalfW + 8,
+      dipY, // cp1: leave dip horizontally
+      rightCurveEnd - 20,
+      lineY, // cp2: arrive back at line level
+      rightCurveEnd,
+      lineY, // end: right curve end
+    );
+
+    // Right flat line
+    path.lineTo(rightLineEnd, lineY);
+
+    return path;
+  }
+
+  @override
+  bool shouldRepaint(_WavePillPainter old) =>
+      old.progress != progress || old.color != color;
 }
 
 // ─────────────────────────────────────────
@@ -509,6 +759,124 @@ class _GiftBoxIcon extends StatelessWidget {
       child: CustomPaint(painter: _GiftPainter()),
     );
   }
+}
+
+class BottomActivateBar extends StatelessWidget {
+  final double progress;
+  final int total;
+  final int index;
+
+  const BottomActivateBar({
+    super.key,
+    required this.progress,
+    required this.total,
+    required this.index,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 130,
+      width: double.infinity,
+      decoration: const BoxDecoration(color: Color(0xFF1E1A15)),
+      child: Column(
+        children: [
+          /// WAVE LINE
+          SizedBox(
+            height: 40,
+            width: double.infinity,
+            child: CustomPaint(painter: _WavePainter(progress)),
+          ),
+
+          /// DOTS
+          const SizedBox(height: 6),
+
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(total, (i) {
+              final active = i == index;
+
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 250),
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                width: active ? 20 : 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: active
+                      ? const Color(0xFFFFD700)
+                      : Colors.white.withOpacity(.3),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              );
+            }),
+          ),
+
+          const SizedBox(height: 6),
+
+          /// CHEVRONS
+          const Icon(Icons.expand_more, color: Color(0xFFFFD700), size: 22),
+
+          const Icon(Icons.expand_more, color: Color(0xFFFFD700), size: 22),
+
+          const SizedBox(height: 4),
+
+          /// TEXT
+          const Text(
+            "Drag down to activate offer",
+            style: TextStyle(
+              color: Color(0xFFFFD700),
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WavePainter extends CustomPainter {
+  final double progress;
+
+  _WavePainter(this.progress);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final dip = 14 + (progress * 6);
+
+    final path = Path();
+
+    path.moveTo(0, 0);
+    path.lineTo(cx - 70, 0);
+
+    path.cubicTo(cx - 40, 0, cx - 40, dip, cx, dip);
+
+    path.cubicTo(cx + 40, dip, cx + 40, 0, cx + 70, 0);
+
+    path.lineTo(size.width, 0);
+
+    /// Glow
+    final glow = Paint()
+      ..color = const Color(0xFFFFD700).withOpacity(.5)
+      ..strokeWidth = 10
+      ..style = PaintingStyle.stroke
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
+
+    canvas.drawPath(path, glow);
+
+    /// Line
+    final paint = Paint()
+      ..color = const Color(0xFF9A7A2A)
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
 class _GiftPainter extends CustomPainter {
@@ -576,7 +944,6 @@ class _CardWidget extends StatelessWidget {
         color: card.cardBg,
         child: Stack(
           children: [
-            // Decorative circles
             Positioned(
               top: -30,
               right: -30,
@@ -601,7 +968,6 @@ class _CardWidget extends StatelessWidget {
                 ),
               ),
             ),
-
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
               child: Column(
@@ -835,15 +1201,13 @@ class _CardWidget extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────
-// Painters
-// ─────────────────────────────────────────
+// ── Painters ──
 class _SmilePainter extends CustomPainter {
   final Color color;
   const _SmilePainter({required this.color});
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
+    final p = Paint()
       ..color = color
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke
@@ -852,10 +1216,10 @@ class _SmilePainter extends CustomPainter {
       Path()
         ..moveTo(0, 2)
         ..quadraticBezierTo(size.width / 2, size.height + 2, size.width, 2),
-      paint,
+      p,
     );
-    canvas.drawLine(Offset(size.width - 4, 0), Offset(size.width, 2), paint);
-    canvas.drawLine(Offset(size.width - 4, 4), Offset(size.width, 2), paint);
+    canvas.drawLine(Offset(size.width - 4, 0), Offset(size.width, 2), p);
+    canvas.drawLine(Offset(size.width - 4, 4), Offset(size.width, 2), p);
   }
 
   @override
@@ -1025,7 +1389,6 @@ class _PaytmPainter extends CustomPainter {
     const bw = 72.0, bh = 55.0;
     final bx = cx - bw / 2;
     final by = size.height - bh;
-    // Phone shape
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(bx, by, bw, bh),
@@ -1055,7 +1418,6 @@ class _PaytmPainter extends CustomPainter {
       canvas,
       Offset(cx - tp.width / 2, by + (bh - 15) / 2 - tp.height / 2 + 5),
     );
-    // Home button
     canvas.drawCircle(
       Offset(cx, by + bh - 6),
       4,
@@ -1073,7 +1435,6 @@ class _PhonePePainter extends CustomPainter {
     final cx = size.width / 2;
     const r = 32.0;
     final cy = size.height - r - 4;
-    // Purple circle
     canvas.drawCircle(
       Offset(cx, cy),
       r,
