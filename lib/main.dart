@@ -1,489 +1,443 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-void main() {
-  runApp(const MyApp());
-}
+void main() => runApp(const _App());
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
+class _App extends StatelessWidget {
+  const _App();
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Welcome Gift',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(scaffoldBackgroundColor: Colors.transparent),
-      home: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-            colors: [
-              Color(0xFF1A1714),
-              Color.fromARGB(255, 140, 127, 50),
-              Color(0xFF1A1714),
-            ],
-            stops: [0.0, 0.5, 1.0],
-          ),
+  Widget build(BuildContext context) => MaterialApp(
+    debugShowCheckedModeBanner: false,
+    theme: ThemeData(scaffoldBackgroundColor: Colors.transparent),
+    home: Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [Color(0xFF1A1714), Color(0xFF8C7F32), Color(0xFF1A1714)],
+          stops: [0.0, 0.5, 1.0],
         ),
-        child: const WelcomeGiftScreen(),
       ),
-    );
-  }
+      child: const WelcomeGiftScreen(),
+    ),
+  );
 }
 
-enum _CardStyle { amazon, flipkart, swiggy, paytm, phonepe }
+// ─────────────────────────────────────────────────────────────
+//  DATA
+// ─────────────────────────────────────────────────────────────
+
+enum _Brand { amazon, flipkart, swiggy, paytm, phonepe }
 
 class GiftCard {
-  final String brand;
-  final String offerLine1;
-  final String offerLine2;
-  final String offerLine3;
-  final Color cardBg;
-  final Color accentColor;
-  final Color offerTextColor;
-  final _CardStyle style;
-
+  final _Brand brand;
+  final String name;
+  final String line1, line2, line3;
+  final Color bg, accent, textColor;
   const GiftCard({
     required this.brand,
-    required this.offerLine1,
-    required this.offerLine2,
-    required this.offerLine3,
-    required this.cardBg,
-    required this.accentColor,
-    required this.offerTextColor,
-    required this.style,
+    required this.name,
+    required this.line1,
+    required this.line2,
+    required this.line3,
+    required this.bg,
+    required this.accent,
+    required this.textColor,
   });
 }
 
+const _cards = <GiftCard>[
+  GiftCard(
+    brand: _Brand.flipkart,
+    name: 'Flipkart',
+    line1: '30%',
+    line2: 'cashback',
+    line3: 'up to ₹150',
+    bg: Color(0xFF2874F0),
+    accent: Color(0xFFFFE500),
+    textColor: Colors.white,
+  ),
+  GiftCard(
+    brand: _Brand.phonepe,
+    name: 'PhonePe',
+    line1: '₹50',
+    line2: 'cashback',
+    line3: 'on recharge',
+    bg: Color(0xFF5F259F),
+    accent: Colors.white,
+    textColor: Colors.white,
+  ),
+  GiftCard(
+    brand: _Brand.amazon,
+    name: 'amazon',
+    line1: '50%',
+    line2: 'cashback',
+    line3: 'up to ₹100',
+    bg: Color(0xFF1B3A5C),
+    accent: Color(0xFFFF9900),
+    textColor: Color(0xFFFFD700),
+  ),
+  GiftCard(
+    brand: _Brand.swiggy,
+    name: 'Swiggy',
+    line1: '₹75',
+    line2: 'cashback',
+    line3: 'on orders',
+    bg: Color(0xFFFC8019),
+    accent: Colors.white,
+    textColor: Colors.white,
+  ),
+  GiftCard(
+    brand: _Brand.paytm,
+    name: 'Paytm',
+    line1: '20%',
+    line2: 'cashback',
+    line3: 'up to ₹200',
+    bg: Color(0xFF00BAF2),
+    accent: Color(0xFF002970),
+    textColor: Colors.white,
+  ),
+];
+
+// ─────────────────────────────────────────────────────────────
+//  CONSTANTS
+// ─────────────────────────────────────────────────────────────
+
+const _kW = 185.0;
+const _kH = 268.0;
+const _kGap = 220.0;
+const _kGold = Color(0xFFFFD700);
+
+const _confettiColors = <Color>[
+  Color(0xFFFFD700),
+  Color(0xFFFF6B35),
+  Color(0xFF4CAF50),
+  Color(0xFFE91E63),
+  Color(0xFF2196F3),
+  Color(0xFFFF9800),
+  Color(0xFF9C27B0),
+  Color(0xFF00BCD4),
+];
+
+// ─────────────────────────────────────────────────────────────
+//  CONFETTI
+// ─────────────────────────────────────────────────────────────
+
+class _Particle {
+  double x, y, vx, vy, angle, spin, size;
+  Color color;
+  bool circle;
+
+  _Particle(math.Random r)
+    : x = 0,
+      y = 0,
+      vx = 0,
+      vy = 0,
+      angle = r.nextDouble() * math.pi * 2,
+      spin = (r.nextDouble() - 0.5) * 0.35,
+      size = r.nextDouble() * 9 + 5,
+      color = _confettiColors[r.nextInt(_confettiColors.length)],
+      circle = r.nextBool() {
+    final a = r.nextDouble() * math.pi * 2;
+    final speed = r.nextDouble() * 15 + 5;
+    vx = math.cos(a) * speed;
+    vy = math.sin(a) * speed - 6;
+  }
+
+  void tick() {
+    x += vx;
+    y += vy;
+    vy += 0.6;
+    angle += spin;
+  }
+
+  bool get dead => y > 1200;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  SCREEN
+// ─────────────────────────────────────────────────────────────
+
 class WelcomeGiftScreen extends StatefulWidget {
   const WelcomeGiftScreen({super.key});
-
   @override
   State<WelcomeGiftScreen> createState() => _WelcomeGiftScreenState();
 }
 
 class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
     with TickerProviderStateMixin {
-  double _currentPage = 2.0;
-  late AnimationController _snapController;
+  // carousel
+  double _page = 2.0;
+  bool _hDrag = false;
+  late final AnimationController _snapCtrl;
   late Animation<double> _snapAnim;
-  bool _isDraggingCard = false;
 
-  bool _isDraggingDown = false;
-  double _dragOffsetY = 0;
+  // drag-down
+  double _dragY = 0;
 
-  late AnimationController _activateController;
-  late Animation<double> _glowAnim;
-  late Animation<double> _cardSinkAnim;
-  bool _activated = false;
+  // sink
+  late final AnimationController _sinkCtrl;
 
-  late AnimationController _chevronController;
-  late Animation<double> _chevronAnim;
+  // overlay burst
+  bool _showOverlay = false;
+  late final AnimationController _overlayCtrl;
+  late final Animation<double> _bgFade;
+  late final Animation<double> _textFade;
+  late final Animation<double> _cardSlide;
+  late final Animation<double> _cardScale;
+  late final Animation<double> _burstScale;
+  late final Animation<double> _burstFade;
 
-  // Bottom bar entry animation
-  late AnimationController _entryController;
-  late Animation<double> _entryAnim;
+  // confetti
+  final _rng = math.Random();
+  final List<_Particle> _particles = [];
 
-  static const double cardW = 185.0;
-  static const double cardH = 268.0;
-  static const double cardSpacing = 220.0;
+  // chevron
+  late final AnimationController _chevCtrl;
+  late final Animation<double> _chevY;
 
-  final List<GiftCard> cards = const [
-    GiftCard(
-      brand: 'Flipkart',
-      offerLine1: '30%',
-      offerLine2: 'cashback',
-      offerLine3: 'up to ₹150',
-      cardBg: Color(0xFF2874F0),
-      accentColor: Color(0xFFFFE500),
-      offerTextColor: Colors.white,
-      style: _CardStyle.flipkart,
-    ),
-    GiftCard(
-      brand: 'PhonePe',
-      offerLine1: '₹50',
-      offerLine2: 'cashback',
-      offerLine3: 'on recharge',
-      cardBg: Color(0xFF5F259F),
-      accentColor: Color(0xFFFFFFFF),
-      offerTextColor: Colors.white,
-      style: _CardStyle.phonepe,
-    ),
-    GiftCard(
-      brand: 'amazon',
-      offerLine1: '50%',
-      offerLine2: 'cashback',
-      offerLine3: 'up to ₹100',
-      cardBg: Color(0xFF1B3A5C),
-      accentColor: Color(0xFFFF9900),
-      offerTextColor: Color(0xFFFFD700),
-      style: _CardStyle.amazon,
-    ),
-    GiftCard(
-      brand: 'Swiggy',
-      offerLine1: '₹75',
-      offerLine2: 'cashback',
-      offerLine3: 'on orders',
-      cardBg: Color(0xFFFC8019),
-      accentColor: Color(0xFFFFFFFF),
-      offerTextColor: Colors.white,
-      style: _CardStyle.swiggy,
-    ),
-    GiftCard(
-      brand: 'Paytm',
-      offerLine1: '20%',
-      offerLine2: 'cashback',
-      offerLine3: 'up to ₹200',
-      cardBg: Color(0xFF00BAF2),
-      accentColor: Color(0xFF002970),
-      offerTextColor: Colors.white,
-      style: _CardStyle.paytm,
-    ),
-  ];
+  // entry
+  late final AnimationController _entryCtrl;
+  late final Animation<double> _entryAnim;
+
+  int get _center => _page.round().clamp(0, _cards.length - 1);
+  double get _prog => (_dragY / 90.0).clamp(0.0, 1.0);
+
+  double get _cardDy {
+    if (_dragY <= 80) return _dragY;
+    return 80 + (_dragY - 80) * 0.35;
+  }
+
+  double get _totalDy => _cardDy + _sinkCtrl.value * 400;
 
   @override
   void initState() {
     super.initState();
 
-    _snapController = AnimationController(
+    _snapCtrl = AnimationController(
+      vsync: this,
       duration: const Duration(milliseconds: 380),
-      vsync: this,
     );
-    _snapAnim = Tween<double>(
-      begin: _currentPage,
-      end: _currentPage,
-    ).animate(_snapController);
-    _snapController.addListener(() {
-      setState(() => _currentPage = _snapAnim.value);
-    });
+    _snapAnim = Tween<double>(begin: _page, end: _page).animate(_snapCtrl);
+    _snapCtrl.addListener(() => setState(() => _page = _snapAnim.value));
 
-    _activateController = AnimationController(
-      duration: const Duration(milliseconds: 600),
+    _sinkCtrl = AnimationController(
       vsync: this,
+      duration: const Duration(milliseconds: 520),
     );
-    _glowAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _activateController, curve: Curves.easeOut),
-    );
-    _cardSinkAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _activateController, curve: Curves.easeIn),
-    );
+    _sinkCtrl.addListener(() => setState(() {}));
 
-    _chevronController = AnimationController(
-      duration: const Duration(milliseconds: 850),
+    _overlayCtrl = AnimationController(
       vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    );
+    _bgFade = _interval(0.00, 0.18, Curves.easeOut);
+    _textFade = _interval(0.10, 0.28, Curves.easeOut);
+    _burstScale = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _overlayCtrl,
+        curve: const Interval(0.00, 0.22, curve: Curves.easeOutBack),
+      ),
+    );
+    _burstFade = Tween<double>(begin: 1.0, end: 0.0).animate(
+      CurvedAnimation(
+        parent: _overlayCtrl,
+        curve: const Interval(0.18, 0.38, curve: Curves.easeIn),
+      ),
+    );
+    _cardSlide = Tween<double>(begin: 700.0, end: 0.0).animate(
+      CurvedAnimation(
+        parent: _overlayCtrl,
+        curve: const Interval(0.38, 1.00, curve: Curves.easeOutBack),
+      ),
+    );
+    _cardScale = Tween<double>(begin: 0.35, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _overlayCtrl,
+        curve: const Interval(0.38, 1.00, curve: Curves.easeOutBack),
+      ),
+    );
+    _overlayCtrl.addListener(_tickParticles);
+
+    _chevCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 750),
     )..repeat(reverse: true);
-    _chevronAnim = Tween<double>(begin: 0.0, end: 7.0).animate(
-      CurvedAnimation(parent: _chevronController, curve: Curves.easeInOut),
-    );
+    _chevY = Tween<double>(
+      begin: 0.0,
+      end: 7.0,
+    ).animate(CurvedAnimation(parent: _chevCtrl, curve: Curves.easeInOut));
 
-    // Entry animation — slides up + fades in on load
-    _entryController = AnimationController(
-      duration: const Duration(milliseconds: 900),
+    _entryCtrl = AnimationController(
       vsync: this,
+      duration: const Duration(milliseconds: 900),
     );
-    _entryAnim = CurvedAnimation(
-      parent: _entryController,
-      curve: Curves.easeOutBack,
-    );
-    // Start entry after a short delay
+    _entryAnim = CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutBack);
     Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) _entryController.forward();
+      if (mounted) _entryCtrl.forward();
     });
   }
+
+  Animation<double> _interval(double t0, double t1, Curve curve) =>
+      Tween<double>(begin: 0.0, end: 1.0).animate(
+        CurvedAnimation(
+          parent: _overlayCtrl,
+          curve: Interval(t0, t1, curve: curve),
+        ),
+      );
 
   @override
   void dispose() {
-    _snapController.dispose();
-    _activateController.dispose();
-    _chevronController.dispose();
-    _entryController.dispose();
+    _snapCtrl.dispose();
+    _sinkCtrl.dispose();
+    _overlayCtrl.dispose();
+    _chevCtrl.dispose();
+    _entryCtrl.dispose();
     super.dispose();
   }
 
-  int get _centerIndex => _currentPage.round().clamp(0, cards.length - 1);
+  // ─────────────────────────────────────────────────────
+  //  GESTURES
+  // ─────────────────────────────────────────────────────
 
-  void _snapToIndex(int index) {
-    final double target = index.toDouble().clamp(0, cards.length - 1);
-    _snapAnim = Tween<double>(begin: _currentPage, end: target).animate(
-      CurvedAnimation(parent: _snapController, curve: Curves.easeOutCubic),
+  void _onHStart(DragStartDetails d) {
+    _snapCtrl.stop();
+    _hDrag = true;
+  }
+
+  void _onHUpdate(DragUpdateDetails d) {
+    if (!_hDrag) return;
+    setState(
+      () =>
+          _page = (_page - d.delta.dx / _kGap).clamp(0.0, _cards.length - 1.0),
     );
-    _snapController.forward(from: 0.0);
   }
 
-  void _onHorizontalDragStart(DragStartDetails d) {
-    _snapController.stop();
-    _isDraggingCard = true;
+  void _onHEnd(DragEndDetails d) {
+    _hDrag = false;
+    final v = d.primaryVelocity ?? 0;
+    int t = _page.round();
+    if (v < -300) t = _page.ceil().clamp(0, _cards.length - 1);
+    if (v > 300) t = _page.floor().clamp(0, _cards.length - 1);
+    _snapTo(t);
   }
 
-  void _onHorizontalDragUpdate(DragUpdateDetails d) {
-    if (!_isDraggingCard) return;
+  void _snapTo(int i) {
+    _snapAnim = Tween<double>(
+      begin: _page,
+      end: i.toDouble().clamp(0.0, _cards.length - 1.0),
+    ).animate(CurvedAnimation(parent: _snapCtrl, curve: Curves.easeOutCubic));
+    _snapCtrl.forward(from: 0.0);
+  }
+
+  void _onVUpdate(DragUpdateDetails d) {
+    if (d.delta.dy <= 0) return;
+    setState(() => _dragY = (_dragY + d.delta.dy).clamp(0.0, 160.0));
+  }
+
+  void _onVEnd(DragEndDetails d) {
+    _dragY >= 65 ? _activate() : setState(() => _dragY = 0);
+  }
+
+  void _onLPStart(LongPressStartDetails _) => HapticFeedback.lightImpact();
+  void _onLPMove(LongPressMoveUpdateDetails d) {
+    final dy = d.offsetFromOrigin.dy;
+    if (dy <= 0) return;
+    setState(() => _dragY = dy.clamp(0.0, 160.0));
+  }
+
+  void _onLPEnd(LongPressEndDetails _) {
+    _dragY >= 65 ? _activate() : setState(() => _dragY = 0);
+  }
+
+  // ─────────────────────────────────────────────────────
+  //  ACTIVATION SEQUENCE
+  // ─────────────────────────────────────────────────────
+
+  Future<void> _activate() async {
+    HapticFeedback.mediumImpact();
+
+    await _sinkCtrl.animateTo(
+      1.0,
+      curve: Curves.easeIn,
+      duration: const Duration(milliseconds: 480),
+    );
+
+    HapticFeedback.heavyImpact();
+
+    for (int i = 0; i < 80; i++) _particles.add(_Particle(_rng));
+
     setState(() {
-      _currentPage = (_currentPage - d.delta.dx / cardSpacing).clamp(
-        0,
-        cards.length - 1.0,
-      );
+      _showOverlay = true;
+    });
+    _sinkCtrl.reset();
+    _dragY = 0;
+
+    _overlayCtrl.forward(from: 0.0);
+  }
+
+  void _closeOverlay() {
+    setState(() {
+      _showOverlay = false;
+      _particles.clear();
+    });
+    _overlayCtrl.reset();
+  }
+
+  void _tickParticles() {
+    if (!_showOverlay) return;
+    setState(() {
+      for (final p in _particles) p.tick();
+      _particles.removeWhere((p) => p.dead);
     });
   }
 
-  void _onHorizontalDragEnd(DragEndDetails d) {
-    _isDraggingCard = false;
-    final double velocity = d.primaryVelocity ?? 0;
-    int target = _currentPage.round();
-    if (velocity < -300)
-      target = (_currentPage.ceil()).clamp(0, cards.length - 1);
-    if (velocity > 300)
-      target = (_currentPage.floor()).clamp(0, cards.length - 1);
-    _snapToIndex(target);
-  }
-
-  void _onVerticalDragUpdate(DragUpdateDetails d) {
-    if (d.delta.dy > 0) {
-      setState(() {
-        _isDraggingDown = true;
-        _dragOffsetY = (_dragOffsetY + d.delta.dy).clamp(0.0, 120.0);
-      });
-    }
-  }
-
-  void _onVerticalDragEnd(DragEndDetails d) {
-    if (_dragOffsetY > 60) {
-      _triggerActivation();
-    } else {
-      setState(() {
-        _isDraggingDown = false;
-        _dragOffsetY = 0;
-      });
-    }
-  }
-
-  void _triggerActivation() async {
-    setState(() => _activated = true);
-    await _activateController.forward();
-    await Future.delayed(const Duration(milliseconds: 400));
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${cards[_centerIndex].brand} offer activated! 🎉'),
-          backgroundColor: cards[_centerIndex].cardBg,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-    await Future.delayed(const Duration(milliseconds: 200));
-    _activateController.reverse();
-    setState(() {
-      _activated = false;
-      _isDraggingDown = false;
-      _dragOffsetY = 0;
-    });
-  }
-
-  double get _dragProgress {
-    if (_activated) return _cardSinkAnim.value;
-    return (_dragOffsetY / 80.0).clamp(0.0, 1.0);
-  }
-
-  double get _borderOpacity => (1.0 - _dragProgress * 0.7).clamp(0.3, 1.0);
+  // ─────────────────────────────────────────────────────
+  //  BUILD
+  // ─────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([_activateController, _entryController]),
+      animation: Listenable.merge([_sinkCtrl, _entryCtrl, _chevCtrl]),
       builder: (context, _) {
-        final double prog = _dragProgress;
-        final double entry = _entryAnim.value; // 0→1 on load
+        final p = _prog;
+        final entry = _entryAnim.value;
 
         return Scaffold(
           backgroundColor: Colors.transparent,
           body: Stack(
             children: [
-              // ── Expanding golden glow from bottom ──
-              if (prog > 0)
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: Container(
-                      width: 40 + (prog * 400),
-                      height: 40 + (prog * 500),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: RadialGradient(
-                          colors: [
-                            const Color(0xFFFFD700).withOpacity(0.55 * prog),
-                            const Color(0xFFFFD700).withOpacity(0.18 * prog),
-                            Colors.transparent,
-                          ],
-                          stops: const [0.0, 0.5, 1.0],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
               SafeArea(
                 child: Column(
                   children: [
-                    // ── Top bar ──
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 14,
-                      ),
-                      child: Row(
-                        children: [
-                          GestureDetector(
-                            onTap: () => Navigator.maybePop(context),
-                            child: const Icon(
-                              Icons.chevron_left,
-                              color: Colors.white70,
-                              size: 26,
-                            ),
-                          ),
-                          const Spacer(),
-                          const Text(
-                            'T&Cs',
-                            style: TextStyle(
-                              color: Color(0xFFFFD700),
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
+                    _topBar(),
                     const SizedBox(height: 12),
-                    _GiftBoxIcon(),
+                    const _GiftIcon(),
                     const SizedBox(height: 16),
-
-                    const Text(
-                      'Choose your\nwelcome gift',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 26,
-                        fontWeight: FontWeight.w700,
-                        height: 1.25,
-                      ),
-                    ),
-
+                    _title(p),
                     const SizedBox(height: 32),
-
-                    // ── Carousel ──
-                    Expanded(
-                      child: GestureDetector(
-                        onHorizontalDragStart: _onHorizontalDragStart,
-                        onHorizontalDragUpdate: _onHorizontalDragUpdate,
-                        onHorizontalDragEnd: _onHorizontalDragEnd,
-                        onVerticalDragUpdate: _onVerticalDragUpdate,
-                        onVerticalDragEnd: _onVerticalDragEnd,
-                        behavior: HitTestBehavior.opaque,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          clipBehavior: Clip.none,
-                          children: [
-                            _buildStaticBorder(),
-                            ..._buildSideCards(),
-                            _buildCenterCard(prog),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    // ── Dot indicators ──
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: List.generate(cards.length, (i) {
-                          final bool active = i == _centerIndex;
-                          return AnimatedContainer(
-                            duration: const Duration(milliseconds: 250),
-                            margin: const EdgeInsets.symmetric(horizontal: 4),
-                            width: active ? 20 : 6,
-                            height: 6,
-                            decoration: BoxDecoration(
-                              color: active
-                                  ? const Color(0xFFFFD700)
-                                  : Colors.white.withOpacity(0.3),
-                              borderRadius: BorderRadius.circular(3),
-                            ),
-                          );
-                        }),
-                      ),
-                    ),
-
-                    // ── Drag label ──
-                    GestureDetector(
-                      onVerticalDragUpdate: _onVerticalDragUpdate,
-                      onVerticalDragEnd: _onVerticalDragEnd,
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Column(
-                          children: [
-                            AnimatedBuilder(
-                              animation: _chevronAnim,
-                              builder: (ctx, child) => Transform.translate(
-                                offset: Offset(0, _chevronAnim.value),
-                                child: child,
-                              ),
-                              child: Column(
-                                children: [
-                                  Icon(
-                                    Icons.expand_more,
-                                    color: const Color(
-                                      0xFFFFD700,
-                                    ).withOpacity(0.4),
-                                    size: 22,
-                                  ),
-                                  Icon(
-                                    Icons.expand_more,
-                                    color: const Color(0xFFFFD700),
-                                    size: 22,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            AnimatedDefaultTextStyle(
-                              duration: const Duration(milliseconds: 200),
-                              style: TextStyle(
-                                color: Color.lerp(
-                                  const Color(0xFFFFD700),
-                                  Colors.white,
-                                  prog,
-                                )!,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                              ),
-                              child: Text(
-                                prog > 0.6
-                                    ? 'Release to activate!'
-                                    : 'Drag down to activate offer',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    // ── Custom bottom bar with entry animation ──
-                    Transform.translate(
-                      offset: Offset(0, (1 - entry) * 80),
-                      child: Opacity(
-                        opacity: entry.clamp(0.0, 1.0),
-                        child: _WavePillBar(
-                          dragProgress: prog,
-                          isActive: _activated,
-                        ),
-                      ),
-                    ),
+                    Expanded(child: _carousel(p)),
+                    Container(
+  height: 160,
+  decoration: BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Colors.transparent,
+        const Color(0xFF6B5E1E).withOpacity(0.85),
+        const Color(0xFF4A4210),
+      ],
+      stops: const [0.0, 0.4, 1.0],
+    ),
+  ),
+),
                   ],
                 ),
               ),
+              if (_showOverlay) _overlay(),
             ],
           ),
         );
@@ -491,84 +445,157 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
     );
   }
 
-  List<Widget> _buildSideCards() {
-    final List<Widget> result = [];
-    for (int i = 0; i < cards.length; i++) {
-      if (i == _centerIndex) continue;
-      final double slot = i - _currentPage;
-      if (slot.abs() > 1.8) continue;
-      result.add(_buildCardAtSlot(i, slot));
-    }
-    return result;
-  }
+  // ─────────────────────────────────────────────────────
+  //  TOP BAR
+  // ─────────────────────────────────────────────────────
 
-  Widget _buildCenterCard(double prog) {
-    final double slot = _centerIndex - _currentPage;
-    final double dragDy =
-        _dragOffsetY.clamp(0.0, 80.0) +
-        (_activated ? _cardSinkAnim.value * 120 : 0);
-    final double sinkScale = (1.0 - prog * 0.08).clamp(0.88, 1.0);
+  Widget _topBar() => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+    child: Row(
+      children: [
+        GestureDetector(
+          onTap: () => Navigator.maybePop(context),
+          child: const Icon(
+            Icons.chevron_left,
+            color: Colors.white70,
+            size: 26,
+          ),
+        ),
+        const Spacer(),
+        const Text(
+          'T&Cs',
+          style: TextStyle(
+            color: _kGold,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    ),
+  );
 
-    return Transform.translate(
-      offset: Offset(slot * cardSpacing, dragDy),
-      child: Transform.scale(
-        scale: sinkScale,
-        child: GestureDetector(
-          onTap: () => _snapToIndex(_centerIndex),
-          child: _CardWidget(card: cards[_centerIndex]),
+  // ─────────────────────────────────────────────────────
+  //  TITLE
+  // ─────────────────────────────────────────────────────
+
+  Widget _title(double p) {
+    final release = p > 0.6;
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 200),
+      child: Text(
+        release ? 'Release to\nactivate offer!' : 'Choose your\nwelcome gift',
+        key: ValueKey(release),
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: release ? _kGold : Colors.white,
+          fontSize: 26,
+          fontWeight: FontWeight.w700,
+          height: 1.25,
         ),
       ),
     );
   }
 
-  Widget _buildCardAtSlot(int index, double slot) {
-    final double rotate = slot * 0.22;
-    final double tx = slot * cardSpacing;
-    final double ty = slot.abs() * 18.0;
-    final double scale = (1.0 - slot.abs() * 0.08).clamp(0.84, 1.0);
-    return Transform.translate(
-      offset: Offset(tx, ty),
-      child: Transform.rotate(
-        angle: rotate,
-        child: Transform.scale(
-          scale: scale,
-          child: GestureDetector(
-            onTap: () => _snapToIndex(index),
-            child: _CardWidget(card: cards[index]),
+  // ─────────────────────────────────────────────────────
+  //  CAROUSEL
+  // ─────────────────────────────────────────────────────
+
+  Widget _carousel(double p) {
+    return GestureDetector(
+      onHorizontalDragStart: _onHStart,
+      onHorizontalDragUpdate: _onHUpdate,
+      onHorizontalDragEnd: _onHEnd,
+      onVerticalDragUpdate: _onVUpdate,
+      onVerticalDragEnd: _onVEnd,
+      onLongPressStart: _onLPStart,
+      onLongPressMoveUpdate: _onLPMove,
+      onLongPressEnd: _onLPEnd,
+      behavior: HitTestBehavior.opaque,
+      child: Stack(
+        alignment: Alignment.center,
+        clipBehavior: Clip.hardEdge,
+        children: [
+          // ── L1: glow pool — removed ──
+          const SizedBox.shrink(),
+
+          // ── L2: hole dark background ──
+          _holeBack(p),
+
+          // ── L3: gold border ring + side glow ──
+          _borderRing(p),
+
+          // ── L4: side cards ──
+          ..._sideCards(),
+
+          // ── L5: center card ──
+          _centerCard(),
+
+          // ── L6: hole front mask ──
+          _holeMask(p),
+
+          // ── L7: chevron ──
+          if (p > 0) _chevronHint(p),
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────
+  //  L2 — HOLE BACK
+  // ─────────────────────────────────────────────────────
+
+  Widget _holeBack(double p) {
+    if (p == 0 && _sinkCtrl.value == 0) return const SizedBox.shrink();
+    final opacity = ((p + _sinkCtrl.value) * 1.6).clamp(0.0, 1.0);
+    return IgnorePointer(
+      child: Opacity(
+        opacity: opacity,
+        child: Container(
+          width: _kW,
+          height: _kH,
+          decoration: BoxDecoration(
+            color: const Color(0xFF060404),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.9),
+                blurRadius: 30,
+                spreadRadius: 8,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildStaticBorder() {
-    final double opacity = _borderOpacity;
+  // ─────────────────────────────────────────────────────
+  //  L3 — BORDER RING + SIDE GLOW
+  // ─────────────────────────────────────────────────────
+
+  Widget _borderRing(double p) {
     return IgnorePointer(
       child: Stack(
         alignment: Alignment.center,
         children: [
-          Container(
-            width: cardW + 28,
-            height: cardH + 28,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(28),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFFFFD700).withOpacity(0.55 * opacity),
-                  blurRadius: 32,
-                  spreadRadius: 4,
-                ),
-              ],
+          // Soft side + top glow using CustomPaint
+          if (p > 0)
+            SizedBox(
+              width: _kW + 300,
+              height: _kH + 300,
+              child: CustomPaint(painter: _SideGlowPainter(p)),
             ),
-          ),
+
+          // Border stroke
           Container(
-            width: cardW + 6,
-            height: cardH + 6,
+            width: _kW + 6,
+            height: _kH + 6,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(23),
               border: Border.all(
-                color: const Color(0xFFFFD700).withOpacity(opacity),
-                width: 2.5,
+                color: _kGold.withOpacity((0.40 + p * 0.60).clamp(0, 1)),
+                width: 2.5 + p * 2.5,
               ),
             ),
           ),
@@ -576,434 +603,685 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
       ),
     );
   }
-}
 
-// ═══════════════════════════════════════════════════════════
-//  Custom Wave-Pill Bottom Bar  ---|_____|---
-//  Shape: flat lines on sides, dips down in the center
-//  The pill glows gold when drag is in progress
-// ═══════════════════════════════════════════════════════════
-class _WavePillBar extends StatelessWidget {
-  final double dragProgress; // 0.0 → 1.0
-  final bool isActive;
+  // ─────────────────────────────────────────────────────
+  //  L5 — CENTER CARD
+  // ─────────────────────────────────────────────────────
 
-  const _WavePillBar({required this.dragProgress, required this.isActive});
+  Widget _centerCard() {
+    final slot = _center - _page;
+    return Transform.translate(
+      offset: Offset(slot * _kGap, _totalDy),
+      child: GestureDetector(
+        onTap: () => _snapTo(_center),
+        child: _CardWidget(card: _cards[_center]),
+      ),
+    );
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    final Color lineColor = Color.lerp(
-      Colors.white.withOpacity(0.25),
-      const Color(0xFFFFD700).withOpacity(0.9),
-      dragProgress,
-    )!;
+  // ─────────────────────────────────────────────────────
+  //  L6 — HOLE MASK
+  // ─────────────────────────────────────────────────────
 
-    final List<BoxShadow> glowShadows = dragProgress > 0.2
-        ? [
-            BoxShadow(
-              color: const Color(0xFFFFD700).withOpacity(0.55 * dragProgress),
-              blurRadius: 16,
-              spreadRadius: 2,
+  Widget _holeMask(double p) {
+    final op = (p * 2.0 + _sinkCtrl.value * 2.0).clamp(0.0, 1.0);
+    if (op <= 0) return const SizedBox.shrink();
+    return IgnorePointer(
+      child: CustomPaint(painter: _HoleMaskPainter(opacity: op)),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────
+  //  SIDE CARDS
+  // ─────────────────────────────────────────────────────
+
+  List<Widget> _sideCards() {
+    final out = <Widget>[];
+    for (int i = 0; i < _cards.length; i++) {
+      if (i == _center) continue;
+      final slot = i - _page;
+      if (slot.abs() > 1.8) continue;
+      out.add(
+        Transform.translate(
+          offset: Offset(slot * _kGap, slot.abs() * 18),
+          child: Transform.rotate(
+            angle: slot * 0.22,
+            child: Transform.scale(
+              scale: (1 - slot.abs() * 0.08).clamp(0.84, 1.0),
+              child: GestureDetector(
+                onTap: () => _snapTo(i),
+                child: _CardWidget(card: _cards[i]),
+              ),
             ),
-          ]
-        : [];
+          ),
+        ),
+      );
+    }
+    return out;
+  }
 
-    return Container(
-      width: double.infinity,
-      height: 36,
-      padding: const EdgeInsets.only(bottom: 8),
-      child: CustomPaint(
-        painter: _WavePillPainter(
-          color: lineColor,
-          glowColor: const Color(0xFFFFD700).withOpacity(0.6 * dragProgress),
-          progress: dragProgress,
+  // ─────────────────────────────────────────────────────
+  //  CHEVRON HINT
+  // ─────────────────────────────────────────────────────
+
+  Widget _chevronHint(double p) {
+    final opacity = p <= 0.5 ? p * 2.0 : (1.0 - p) * 2.0;
+    return Positioned(
+      bottom: -(_kH / 2) + 8,
+      child: IgnorePointer(
+        child: Opacity(
+          opacity: opacity.clamp(0.0, 1.0),
+          child: AnimatedBuilder(
+            animation: _chevY,
+            builder: (_, child) => Transform.translate(
+              offset: Offset(0, _chevY.value),
+              child: child,
+            ),
+            child: Column(
+              children: [
+                Icon(Icons.expand_more, color: _kGold.withOpacity(0.4), size: 26),
+                Icon(Icons.expand_more, color: _kGold, size: 26),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
+
+  // ─────────────────────────────────────────────────────
+  //  DOTS
+  // ─────────────────────────────────────────────────────
+
+  Widget _dots() => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 10),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(_cards.length, (i) {
+        final active = i == _center;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          width: active ? 20 : 6,
+          height: 6,
+          decoration: BoxDecoration(
+            color: active ? _kGold : Colors.white.withOpacity(0.30),
+            borderRadius: BorderRadius.circular(3),
+          ),
+        );
+      }),
+    ),
+  );
+
+  // ─────────────────────────────────────────────────────
+  //  DRAG LABEL
+  // ─────────────────────────────────────────────────────
+
+  Widget _dragLabel(double p) => Padding(
+    padding: const EdgeInsets.only(bottom: 4),
+    child: Column(
+      children: [
+        AnimatedBuilder(
+          animation: _chevY,
+          builder: (_, child) => Transform.translate(
+            offset: Offset(0, _chevY.value),
+            child: child,
+          ),
+          child: Column(
+            children: [
+              Icon(Icons.expand_more, color: _kGold.withOpacity(0.4), size: 22),
+              Icon(Icons.expand_more, color: _kGold, size: 22),
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 200),
+          style: TextStyle(
+            color: Color.lerp(_kGold, Colors.white, p)!,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
+          child: Text(
+            p > 0.6 ? 'Release to activate!' : 'Drag down to activate offer',
+          ),
+        ),
+      ],
+    ),
+  );
+
+  // ─────────────────────────────────────────────────────
+  //  BOTTOM BAR
+  // ─────────────────────────────────────────────────────
+
+  Widget _bottomBar(double entry, double p) => Transform.translate(
+    offset: Offset(0, (1 - entry) * 80),
+    child: Opacity(
+      opacity: entry.clamp(0.0, 1.0),
+      child: _WavePillBar(progress: p),
+    ),
+  );
+
+  // ─────────────────────────────────────────────────────
+  //  OVERLAY
+  // ─────────────────────────────────────────────────────
+
+  Widget _overlay() {
+    return AnimatedBuilder(
+      animation: _overlayCtrl,
+      builder: (context, _) {
+        final bg = _bgFade.value;
+        final text = _textFade.value;
+        final bScale = _burstScale.value;
+        final bFade = _burstFade.value;
+        final slide = _cardSlide.value;
+        final scale = _cardScale.value;
+        final card = _cards[_center];
+
+        return Positioned.fill(
+          child: GestureDetector(
+            onTap: _closeOverlay,
+            child: Container(
+              color: Colors.black.withOpacity(0.92 * bg),
+              child: SafeArea(
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Positioned.fill(
+                      child: CustomPaint(
+                        painter: _ConfettiPainter(particles: _particles),
+                      ),
+                    ),
+
+                    if (bScale > 0)
+                      Opacity(
+                        opacity: bFade,
+                        child: Transform.scale(
+                          scale: bScale,
+                          child: Container(
+                            width: 320,
+                            height: 320,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: _kGold.withOpacity(0.8),
+                                width: 3,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: _kGold.withOpacity(0.6),
+                                  blurRadius: 40,
+                                  spreadRadius: 10,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+
+                    Positioned(
+                      top: 50,
+                      left: 0,
+                      right: 0,
+                      child: Opacity(
+                        opacity: text,
+                        child: Column(
+                          children: [
+                            const _GiftIcon(),
+                            const SizedBox(height: 14),
+                            _ActivatingText(progress: text),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    Transform.translate(
+                      offset: Offset(0, slide),
+                      child: Transform.scale(
+                        scale: scale,
+                        child: Opacity(
+                          opacity: (scale * 1.8).clamp(0.0, 1.0),
+                          child: _ActivatedCard(card: card),
+                        ),
+                      ),
+                    ),
+
+                    Positioned(
+                      top: 14,
+                      left: 20,
+                      child: Opacity(
+                        opacity: bg,
+                        child: GestureDetector(
+                          onTap: _closeOverlay,
+                          child: const Icon(
+                            Icons.close,
+                            color: Colors.white70,
+                            size: 26,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 14,
+                      right: 20,
+                      child: Opacity(
+                        opacity: bg,
+                        child: const Text(
+                          'T&Cs',
+                          style: TextStyle(
+                            color: _kGold,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: Opacity(
+                        opacity: bg,
+                        child: Container(
+                          height: 3,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.transparent,
+                                _kGold.withOpacity(0.85),
+                                Colors.transparent,
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
-// ─────────────────────────────────────────
-// Painter: draws  ---|___|---  shape
-// ─────────────────────────────────────────
-class _WavePillPainter extends CustomPainter {
-  final Color color;
-  final Color glowColor;
-  final double progress;
+// ─────────────────────────────────────────────────────────────
+//  PAINTERS
+// ─────────────────────────────────────────────────────────────
 
-  const _WavePillPainter({
-    required this.color,
-    required this.glowColor,
-    required this.progress,
-  });
+// ─────────────────────────────────────────────────────────────
+//  SIDE GLOW PAINTER
+//  Soft blurred glow on left, right, and top sides only.
+//  Bottom edge stays clean/sharp.
+// ─────────────────────────────────────────────────────────────
+
+class _SideGlowPainter extends CustomPainter {
+  final double p;
+  const _SideGlowPainter(this.p);
+
+  @override
+  void paint(Canvas canvas, Size s) {
+    final cx = s.width / 2;
+    final cy = s.height / 2;
+    final blur = 35.0 * p;
+
+    // Left side glow
+    canvas.drawRect(
+      Rect.fromLTWH(0, cy - _kH / 2 - 30, cx - _kW / 2 + 10, _kH + 60),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.centerRight,
+          end: Alignment.centerLeft,
+          colors: [
+            _kGold.withOpacity(0.75 * p),
+            _kGold.withOpacity(0.0),
+          ],
+        ).createShader(
+          Rect.fromLTWH(0, cy - _kH / 2 - 30, cx - _kW / 2 + 10, _kH + 60),
+        )
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, blur),
+    );
+
+    // Right side glow
+    final rx = cx + _kW / 2 - 10;
+    canvas.drawRect(
+      Rect.fromLTWH(rx, cy - _kH / 2 - 30, cx - _kW / 2 + 10, _kH + 60),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [
+            _kGold.withOpacity(0.75 * p),
+            _kGold.withOpacity(0.0),
+          ],
+        ).createShader(
+          Rect.fromLTWH(rx, cy - _kH / 2 - 30, cx - _kW / 2 + 10, _kH + 60),
+        )
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, blur),
+    );
+
+    // Top glow
+    final topH = cy - _kH / 2 + 10;
+    if (topH > 0) {
+      canvas.drawRect(
+        Rect.fromLTWH(cx - _kW / 2 - 30, 0, _kW + 60, topH),
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.bottomCenter,
+            end: Alignment.topCenter,
+            colors: [
+              _kGold.withOpacity(0.75 * p),
+              _kGold.withOpacity(0.0),
+            ],
+          ).createShader(
+            Rect.fromLTWH(cx - _kW / 2 - 30, 0, _kW + 60, topH),
+          )
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, blur),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SideGlowPainter o) => o.p != p;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  HOLE MASK PAINTER
+// ─────────────────────────────────────────────────────────────
+
+class _HoleMaskPainter extends CustomPainter {
+  final double opacity;
+  const _HoleMaskPainter({required this.opacity});
+
+  static const _r = Radius.circular(20);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final double cx = size.width / 2;
-    final double cy = size.height / 2;
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    final rect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: Offset(cx, cy), width: _kW, height: _kH),
+      _r,
+    );
 
-    // Dip depth grows slightly with drag progress
-    final double dipDepth = 10.0 + progress * 6.0;
-    // Pill width at the bottom of the dip
-    final double pillHalfW = 50.0;
-    // Where the curve starts/ends (x offset from center)
-    final double curveStartX = pillHalfW + 28.0;
-    // Flat line extends to this x from center
-    final double lineEndX = size.width * 0.5 - 10;
+    canvas.saveLayer(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..color = Colors.white.withOpacity(opacity),
+    );
 
-    // ── Glow pass (draw wider, blurred stroke below) ──
-    if (progress > 0) {
-      final glowPaint = Paint()
-        ..color = glowColor
-        ..strokeWidth = 6.0
+    canvas.drawRRect(rect, Paint()..color = const Color(0xFF060404));
+
+    canvas.drawRRect(
+      rect,
+      Paint()
+        ..color = _kGold.withOpacity(0.85)
         ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-      canvas.drawPath(
-        _buildPath(cx, cy, dipDepth, pillHalfW, curveStartX, lineEndX, size),
-        glowPaint,
-      );
-    }
-
-    // ── Main stroke ──
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 2.8
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    canvas.drawPath(
-      _buildPath(cx, cy, dipDepth, pillHalfW, curveStartX, lineEndX, size),
-      paint,
-    );
-  }
-
-  Path _buildPath(
-    double cx,
-    double cy,
-    double dipDepth,
-    double pillHalfW,
-    double curveStartX,
-    double lineEndX,
-    Size size,
-  ) {
-    final path = Path();
-
-    // Left flat line:  start from left edge → to curve start
-    final double leftLineStart = cx - lineEndX;
-    final double leftCurveStart = cx - curveStartX;
-    final double rightCurveEnd = cx + curveStartX;
-    final double rightLineEnd = cx + lineEndX;
-
-    // Bottom of the dip
-    final double dipY = cy + dipDepth;
-    // Top of the flat lines
-    final double lineY = cy;
-
-    // Left flat line
-    path.moveTo(leftLineStart, lineY);
-    path.lineTo(leftCurveStart, lineY);
-
-    // Left curve going down into the dip
-    // Control point pulls the curve smoothly downward
-    path.cubicTo(
-      leftCurveStart + 20,
-      lineY, // cp1: stay flat briefly
-      cx - pillHalfW - 8,
-      dipY, // cp2: arrive at dip level
-      cx - pillHalfW,
-      dipY, // end: left edge of pill
+        ..strokeWidth = 3.5,
     );
 
-    // Pill bottom (straight line at dip)
-    path.lineTo(cx + pillHalfW, dipY);
-
-    // Right curve going back up
-    path.cubicTo(
-      cx + pillHalfW + 8,
-      dipY, // cp1: leave dip horizontally
-      rightCurveEnd - 20,
-      lineY, // cp2: arrive back at line level
-      rightCurveEnd,
-      lineY, // end: right curve end
-    );
-
-    // Right flat line
-    path.lineTo(rightLineEnd, lineY);
-
-    return path;
-  }
-
-  @override
-  bool shouldRepaint(_WavePillPainter old) =>
-      old.progress != progress || old.color != color;
-}
-
-// ─────────────────────────────────────────
-// Gift box icon
-// ─────────────────────────────────────────
-class _GiftBoxIcon extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 56,
-      height: 56,
-      decoration: BoxDecoration(
-        color: const Color(0xFF252018),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: const Color(0xFFFFD700).withOpacity(0.3),
-          width: 1,
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: Offset(cx, cy - _kH * 0.48),
+          width: _kW - 8,
+          height: 12,
         ),
+        const Radius.circular(6),
       ),
-      child: CustomPaint(painter: _GiftPainter()),
+      Paint()
+        ..color = Colors.black.withOpacity(0.6)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
     );
+
+    canvas.restore();
   }
-}
-
-class BottomActivateBar extends StatelessWidget {
-  final double progress;
-  final int total;
-  final int index;
-
-  const BottomActivateBar({
-    super.key,
-    required this.progress,
-    required this.total,
-    required this.index,
-  });
 
   @override
+  bool shouldRepaint(_HoleMaskPainter o) => o.opacity != opacity;
+}
+
+// Confetti
+class _ConfettiPainter extends CustomPainter {
+  final List<_Particle> particles;
+  const _ConfettiPainter({required this.particles});
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2, cy = size.height * 0.42;
+    for (final p in particles) {
+      canvas.save();
+      canvas.translate(cx + p.x, cy + p.y);
+      canvas.rotate(p.angle);
+      final paint = Paint()..color = p.color;
+      if (p.circle) {
+        canvas.drawCircle(Offset.zero, p.size / 2, paint);
+      } else {
+        canvas.drawRect(
+          Rect.fromCenter(
+            center: Offset.zero,
+            width: p.size,
+            height: p.size * 0.55,
+          ),
+          paint,
+        );
+      }
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(_) => true;
+}
+
+// Wave-pill bottom bar
+class _WavePillBar extends StatelessWidget {
+  final double progress;
+  const _WavePillBar({required this.progress});
+  @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 130,
+    return SizedBox(
       width: double.infinity,
-      decoration: const BoxDecoration(color: Color(0xFF1E1A15)),
-      child: Column(
-        children: [
-          /// WAVE LINE
-          SizedBox(
-            height: 40,
-            width: double.infinity,
-            child: CustomPaint(painter: _WavePainter(progress)),
-          ),
-
-          /// DOTS
-          const SizedBox(height: 6),
-
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(total, (i) {
-              final active = i == index;
-
-              return AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                width: active ? 20 : 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  color: active
-                      ? const Color(0xFFFFD700)
-                      : Colors.white.withOpacity(.3),
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              );
-            }),
-          ),
-
-          const SizedBox(height: 6),
-
-          /// CHEVRONS
-          const Icon(Icons.expand_more, color: Color(0xFFFFD700), size: 22),
-
-          const Icon(Icons.expand_more, color: Color(0xFFFFD700), size: 22),
-
-          const SizedBox(height: 4),
-
-          /// TEXT
-          const Text(
-            "Drag down to activate offer",
-            style: TextStyle(
-              color: Color(0xFFFFD700),
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
+      height: 36,
+      child: CustomPaint(painter: _WavePainter(progress)),
     );
   }
 }
 
 class _WavePainter extends CustomPainter {
+  final double p;
+  const _WavePainter(this.p);
+  @override
+  void paint(Canvas canvas, Size s) {
+    final path = _makePath(s);
+    final color = Color.lerp(
+      Colors.white.withOpacity(0.25),
+      _kGold.withOpacity(0.9),
+      p,
+    )!;
+    if (p > 0) {
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = _kGold.withOpacity(0.6 * p)
+          ..strokeWidth = 6
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+      );
+    }
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = color
+        ..strokeWidth = 2.8
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+  }
+
+  Path _makePath(Size s) {
+    final cx = s.width / 2, cy = s.height / 2;
+    final dip = 10.0 + p * 6;
+    const hw = 50.0, curve = 28.0;
+    final end = s.width * 0.5 - 10;
+    return Path()
+      ..moveTo(cx - end, cy)
+      ..lineTo(cx - hw - curve, cy)
+      ..cubicTo(
+        cx - hw - curve + 20, cy,
+        cx - hw - 8, cy + dip,
+        cx - hw, cy + dip,
+      )
+      ..lineTo(cx + hw, cy + dip)
+      ..cubicTo(
+        cx + hw + 8, cy + dip,
+        cx + hw + curve - 20, cy,
+        cx + hw + curve, cy,
+      )
+      ..lineTo(cx + end, cy);
+  }
+
+  @override
+  bool shouldRepaint(_WavePainter o) => o.p != p;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  OVERLAY WIDGETS
+// ─────────────────────────────────────────────────────────────
+
+class _ActivatingText extends StatelessWidget {
   final double progress;
-
-  _WavePainter(this.progress);
-
+  const _ActivatingText({required this.progress});
   @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final dip = 14 + (progress * 6);
-
-    final path = Path();
-
-    path.moveTo(0, 0);
-    path.lineTo(cx - 70, 0);
-
-    path.cubicTo(cx - 40, 0, cx - 40, dip, cx, dip);
-
-    path.cubicTo(cx + 40, dip, cx + 40, 0, cx + 70, 0);
-
-    path.lineTo(size.width, 0);
-
-    /// Glow
-    final glow = Paint()
-      ..color = const Color(0xFFFFD700).withOpacity(.5)
-      ..strokeWidth = 10
-      ..style = PaintingStyle.stroke
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
-
-    canvas.drawPath(path, glow);
-
-    /// Line
-    final paint = Paint()
-      ..color = const Color(0xFF9A7A2A)
-      ..strokeWidth = 2.5
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  Widget build(BuildContext context) => ShaderMask(
+    shaderCallback: (b) => LinearGradient(
+      colors: const [_kGold, Colors.white, _kGold],
+      stops: [
+        (progress - 0.3).clamp(0, 1),
+        progress.clamp(0, 1),
+        (progress + 0.3).clamp(0, 1),
+      ],
+    ).createShader(b),
+    child: const Text(
+      'Activating the\noffer for you...',
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        color: Colors.white,
+        fontSize: 22,
+        fontWeight: FontWeight.w700,
+        height: 1.3,
+      ),
+    ),
+  );
 }
 
-class _GiftPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(cx - 14, cy - 6, 28, 18),
-        const Radius.circular(3),
-      ),
-      Paint()..color = const Color(0xFFE8541A),
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(cx - 15, cy - 12, 30, 8),
-        const Radius.circular(3),
-      ),
-      Paint()..color = const Color(0xFFFF6B35),
-    );
-    final rp = Paint()..color = const Color(0xFFFFD700);
-    canvas.drawRect(Rect.fromLTWH(cx - 3, cy - 13, 6, 32), rp);
-    canvas.drawRect(Rect.fromLTWH(cx - 15, cy - 9, 30, 5), rp);
-    final bp = Paint()
-      ..color = const Color(0xFFFFD700)
-      ..style = PaintingStyle.fill;
-    canvas.drawPath(
-      Path()
-        ..moveTo(cx, cy - 13)
-        ..quadraticBezierTo(cx - 10, cy - 22, cx - 6, cy - 14)
-        ..close(),
-      bp,
-    );
-    canvas.drawPath(
-      Path()
-        ..moveTo(cx, cy - 13)
-        ..quadraticBezierTo(cx + 10, cy - 22, cx + 6, cy - 14)
-        ..close(),
-      bp,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_) => false;
-}
-
-// ─────────────────────────────────────────
-// Card widget
-// ─────────────────────────────────────────
-class _CardWidget extends StatelessWidget {
+class _ActivatedCard extends StatelessWidget {
   final GiftCard card;
-  const _CardWidget({required this.card});
-
-  static const double w = _WelcomeGiftScreenState.cardW;
-  static const double h = _WelcomeGiftScreenState.cardH;
-
+  const _ActivatedCard({required this.card});
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(24),
       child: Container(
-        width: w,
-        height: h,
-        color: card.cardBg,
+        width: 270,
+        height: 355,
+        color: card.bg,
         child: Stack(
           children: [
             Positioned(
-              top: -30,
-              right: -30,
-              child: Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withOpacity(0.07),
-                ),
-              ),
+              top: -40,
+              right: -40,
+              child: _blob(150, Colors.white.withOpacity(0.07)),
             ),
             Positioned(
-              bottom: -20,
-              left: -20,
-              child: Container(
-                width: 90,
-                height: 90,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withOpacity(0.05),
-                ),
-              ),
+              bottom: -30,
+              left: -30,
+              child: _blob(120, Colors.white.withOpacity(0.05)),
+            ),
+            const Positioned(
+              top: 16,
+              right: 16,
+              child: Text('🎧', style: TextStyle(fontSize: 22)),
+            ),
+            const Positioned(
+              top: 16,
+              left: 16,
+              child: Text('🛍️', style: TextStyle(fontSize: 18)),
+            ),
+            const Positioned(
+              bottom: 64,
+              right: 18,
+              child: Text('➡️', style: TextStyle(fontSize: 16)),
+            ),
+            const Positioned(
+              bottom: 72,
+              left: 18,
+              child: Text('📦', style: TextStyle(fontSize: 20)),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+              padding: const EdgeInsets.fromLTRB(20, 56, 20, 0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _logo(),
-                  const SizedBox(height: 14),
                   Text(
-                    card.offerLine1,
+                    card.name,
                     style: TextStyle(
-                      color: card.offerTextColor,
-                      fontSize: 36,
+                      color: card.textColor.withOpacity(0.75),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    card.line1,
+                    style: TextStyle(
+                      color: card.textColor,
+                      fontSize: 54,
                       fontWeight: FontWeight.w900,
                       height: 1.0,
                     ),
                   ),
                   Text(
-                    card.offerLine2,
+                    card.line2,
                     style: TextStyle(
-                      color: card.offerTextColor.withOpacity(0.9),
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      height: 1.2,
+                      color: card.textColor.withOpacity(0.9),
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
+                  const SizedBox(height: 6),
                   Text(
-                    card.offerLine3,
+                    'Use FamPay to shop on ${card.name}',
                     style: TextStyle(
-                      color: card.offerTextColor.withOpacity(0.85),
-                      fontSize: 14,
+                      color: card.textColor.withOpacity(0.70),
+                      fontSize: 13,
                       fontWeight: FontWeight.w500,
-                      height: 1.3,
                     ),
                   ),
                   const Spacer(),
-                  _illustration(),
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'Expires on 27 Jan',
+                      style: TextStyle(
+                        color: card.textColor.withOpacity(0.8),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1013,9 +1291,142 @@ class _CardWidget extends StatelessWidget {
     );
   }
 
+  Widget _blob(double s, Color c) => Container(
+    width: s,
+    height: s,
+    decoration: BoxDecoration(shape: BoxShape.circle, color: c),
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+//  GIFT ICON
+// ─────────────────────────────────────────────────────────────
+
+class _GiftIcon extends StatelessWidget {
+  const _GiftIcon();
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 56,
+    height: 56,
+    decoration: BoxDecoration(
+      color: const Color(0xFF252018),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: _kGold.withOpacity(0.30), width: 1),
+    ),
+    child: CustomPaint(painter: _GiftPainter()),
+  );
+}
+
+class _GiftPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size s) {
+    final cx = s.width / 2, cy = s.height / 2;
+    void rr(Rect r, double rad, Color c) => canvas.drawRRect(
+      RRect.fromRectAndRadius(r, Radius.circular(rad)),
+      Paint()..color = c,
+    );
+    rr(Rect.fromLTWH(cx - 14, cy - 6, 28, 18), 3, const Color(0xFFE8541A));
+    rr(Rect.fromLTWH(cx - 15, cy - 12, 30, 8), 3, const Color(0xFFFF6B35));
+    final g = Paint()..color = _kGold;
+    canvas.drawRect(Rect.fromLTWH(cx - 3, cy - 13, 6, 32), g);
+    canvas.drawRect(Rect.fromLTWH(cx - 15, cy - 9, 30, 5), g);
+    for (final sign in [-1.0, 1.0]) {
+      canvas.drawPath(
+        Path()
+          ..moveTo(cx, cy - 13)
+          ..quadraticBezierTo(cx + sign * 10, cy - 22, cx + sign * 6, cy - 14)
+          ..close(),
+        g,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_) => false;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  CARD WIDGET
+// ─────────────────────────────────────────────────────────────
+
+class _CardWidget extends StatelessWidget {
+  final GiftCard card;
+  const _CardWidget({required this.card});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        width: _kW,
+        height: _kH,
+        color: card.bg,
+        child: Stack(
+          children: [
+            Positioned(
+              top: -30,
+              right: -30,
+              child: _blob(120, Colors.white.withOpacity(0.07)),
+            ),
+            Positioned(
+              bottom: -20,
+              left: -20,
+              child: _blob(90, Colors.white.withOpacity(0.05)),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _logo(),
+                  const SizedBox(height: 14),
+                  Text(
+                    card.line1,
+                    style: TextStyle(
+                      color: card.textColor,
+                      fontSize: 36,
+                      fontWeight: FontWeight.w900,
+                      height: 1.0,
+                    ),
+                  ),
+                  Text(
+                    card.line2,
+                    style: TextStyle(
+                      color: card.textColor.withOpacity(0.9),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      height: 1.2,
+                    ),
+                  ),
+                  Text(
+                    card.line3,
+                    style: TextStyle(
+                      color: card.textColor.withOpacity(0.85),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      height: 1.3,
+                    ),
+                  ),
+                  const Spacer(),
+                  _illus(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _blob(double s, Color c) => Container(
+    width: s,
+    height: s,
+    decoration: BoxDecoration(shape: BoxShape.circle, color: c),
+  );
+
   Widget _logo() {
-    switch (card.style) {
-      case _CardStyle.amazon:
+    switch (card.brand) {
+      case _Brand.amazon:
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1034,164 +1445,83 @@ class _CardWidget extends StatelessWidget {
             ),
           ],
         );
-      case _CardStyle.flipkart:
-        return Row(
-          children: [
-            Container(
-              width: 22,
-              height: 22,
-              decoration: const BoxDecoration(
-                color: Color(0xFFFFE500),
-                shape: BoxShape.circle,
-              ),
-              child: const Center(
-                child: Text(
-                  'F',
-                  style: TextStyle(
-                    color: Color(0xFF2874F0),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            const Text(
-              'flipkart',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
+      case _Brand.flipkart:
+        return _row(
+          _badge('F', const Color(0xFFFFE500), const Color(0xFF2874F0), 12),
+          'flipkart',
         );
-      case _CardStyle.swiggy:
-        return Row(
-          children: [
-            Container(
-              width: 22,
-              height: 22,
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-              ),
-              child: const Center(
-                child: Text(
-                  'S',
-                  style: TextStyle(
-                    color: Color(0xFFFC8019),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            const Text(
-              'swiggy',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
+      case _Brand.swiggy:
+        return _row(
+          _badge('S', Colors.white, const Color(0xFFFC8019), 12),
+          'swiggy',
         );
-      case _CardStyle.paytm:
-        return Row(
-          children: [
-            Container(
-              width: 22,
-              height: 22,
-              decoration: const BoxDecoration(
-                color: Color(0xFF002970),
-                shape: BoxShape.circle,
-              ),
-              child: const Center(
-                child: Text(
-                  'P',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            const Text(
-              'Paytm',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
+      case _Brand.paytm:
+        return _row(
+          _badge('P', const Color(0xFF002970), Colors.white, 11),
+          'Paytm',
         );
-      case _CardStyle.phonepe:
-        return Row(
-          children: [
-            Container(
-              width: 22,
-              height: 22,
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-              ),
-              child: const Center(
-                child: Text(
-                  'Ph',
-                  style: TextStyle(
-                    color: Color(0xFF5F259F),
-                    fontSize: 8,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            const Text(
-              'PhonePe',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
+      case _Brand.phonepe:
+        return _row(
+          _badge('Ph', Colors.white, const Color(0xFF5F259F), 8),
+          'PhonePe',
         );
     }
   }
 
-  Widget _illustration() {
-    switch (card.style) {
-      case _CardStyle.amazon:
+  Widget _row(Widget icon, String label) => Row(
+    children: [
+      icon,
+      const SizedBox(width: 6),
+      Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    ],
+  );
+
+  Widget _badge(String t, Color bg, Color fg, double fs) => Container(
+    width: 22,
+    height: 22,
+    decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+    child: Center(
+      child: Text(
+        t,
+        style: TextStyle(color: fg, fontSize: fs, fontWeight: FontWeight.w900),
+      ),
+    ),
+  );
+
+  Widget _illus() {
+    switch (card.brand) {
+      case _Brand.amazon:
         return SizedBox(
           width: double.infinity,
           height: 100,
-          child: CustomPaint(painter: _AmazonBoxPainter()),
+          child: CustomPaint(painter: _AmazonPainter()),
         );
-      case _CardStyle.flipkart:
+      case _Brand.flipkart:
         return SizedBox(
           width: double.infinity,
           height: 95,
-          child: CustomPaint(painter: _FlipkartBagPainter()),
+          child: CustomPaint(painter: _FlipkartPainter()),
         );
-      case _CardStyle.swiggy:
+      case _Brand.swiggy:
         return SizedBox(
           width: double.infinity,
           height: 95,
-          child: CustomPaint(painter: _SwiggyBagPainter()),
+          child: CustomPaint(painter: _SwiggyPainter()),
         );
-      case _CardStyle.paytm:
+      case _Brand.paytm:
         return SizedBox(
           width: double.infinity,
           height: 95,
           child: CustomPaint(painter: _PaytmPainter()),
         );
-      case _CardStyle.phonepe:
+      case _Brand.phonepe:
         return SizedBox(
           width: double.infinity,
           height: 95,
@@ -1201,12 +1531,15 @@ class _CardWidget extends StatelessWidget {
   }
 }
 
-// ── Painters ──
+// ─────────────────────────────────────────────────────────────
+//  ILLUSTRATION PAINTERS
+// ─────────────────────────────────────────────────────────────
+
 class _SmilePainter extends CustomPainter {
   final Color color;
   const _SmilePainter({required this.color});
   @override
-  void paint(Canvas canvas, Size size) {
+  void paint(Canvas canvas, Size s) {
     final p = Paint()
       ..color = color
       ..strokeWidth = 2.5
@@ -1215,24 +1548,23 @@ class _SmilePainter extends CustomPainter {
     canvas.drawPath(
       Path()
         ..moveTo(0, 2)
-        ..quadraticBezierTo(size.width / 2, size.height + 2, size.width, 2),
+        ..quadraticBezierTo(s.width / 2, s.height + 2, s.width, 2),
       p,
     );
-    canvas.drawLine(Offset(size.width - 4, 0), Offset(size.width, 2), p);
-    canvas.drawLine(Offset(size.width - 4, 4), Offset(size.width, 2), p);
+    canvas.drawLine(Offset(s.width - 4, 0), Offset(s.width, 2), p);
+    canvas.drawLine(Offset(s.width - 4, 4), Offset(s.width, 2), p);
   }
 
   @override
   bool shouldRepaint(_) => false;
 }
 
-class _AmazonBoxPainter extends CustomPainter {
+class _AmazonPainter extends CustomPainter {
   @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
+  void paint(Canvas canvas, Size s) {
+    final cx = s.width / 2;
     const bw = 80.0, bh = 60.0;
-    final bx = cx - bw / 2;
-    final by = size.height - bh - 4;
+    final bx = cx - bw / 2, by = s.height - bh - 4;
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(bx + 4, by + 8, bw, bh),
@@ -1279,13 +1611,12 @@ class _AmazonBoxPainter extends CustomPainter {
   bool shouldRepaint(_) => false;
 }
 
-class _FlipkartBagPainter extends CustomPainter {
+class _FlipkartPainter extends CustomPainter {
   @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
+  void paint(Canvas canvas, Size s) {
+    final cx = s.width / 2;
     const bw = 72.0, bh = 62.0;
-    final bx = cx - bw / 2;
-    final by = size.height - bh;
+    final bx = cx - bw / 2, by = s.height - bh;
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(bx + 3, by + 6, bw, bh),
@@ -1309,15 +1640,15 @@ class _FlipkartBagPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
     canvas.drawArc(
       Rect.fromLTWH(cx - 22, by - 16, 20, 20),
-      3.14,
-      3.14,
+      math.pi,
+      math.pi,
       false,
       hp,
     );
     canvas.drawArc(
       Rect.fromLTWH(cx + 2, by - 16, 20, 20),
-      3.14,
-      3.14,
+      math.pi,
+      math.pi,
       false,
       hp,
     );
@@ -1339,13 +1670,12 @@ class _FlipkartBagPainter extends CustomPainter {
   bool shouldRepaint(_) => false;
 }
 
-class _SwiggyBagPainter extends CustomPainter {
+class _SwiggyPainter extends CustomPainter {
   @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
+  void paint(Canvas canvas, Size s) {
+    final cx = s.width / 2;
     const bw = 70.0, bh = 58.0;
-    final bx = cx - bw / 2;
-    final by = size.height - bh;
+    final bx = cx - bw / 2, by = s.height - bh;
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(bx, by, bw, bh),
@@ -1367,8 +1697,8 @@ class _SwiggyBagPainter extends CustomPainter {
     tp.paint(canvas, Offset(cx - tp.width / 2, by + bh / 2 - tp.height / 2));
     canvas.drawArc(
       Rect.fromLTWH(cx - 18, by - 14, 36, 20),
-      3.14,
-      3.14,
+      math.pi,
+      math.pi,
       false,
       Paint()
         ..color = Colors.white.withOpacity(0.7)
@@ -1384,11 +1714,10 @@ class _SwiggyBagPainter extends CustomPainter {
 
 class _PaytmPainter extends CustomPainter {
   @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
+  void paint(Canvas canvas, Size s) {
+    final cx = s.width / 2;
     const bw = 72.0, bh = 55.0;
-    final bx = cx - bw / 2;
-    final by = size.height - bh;
+    final bx = cx - bw / 2, by = s.height - bh;
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(bx, by, bw, bh),
@@ -1431,10 +1760,10 @@ class _PaytmPainter extends CustomPainter {
 
 class _PhonePePainter extends CustomPainter {
   @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
+  void paint(Canvas canvas, Size s) {
+    final cx = s.width / 2;
     const r = 32.0;
-    final cy = size.height - r - 4;
+    final cy = s.height - r - 4;
     canvas.drawCircle(
       Offset(cx, cy),
       r,
