@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/scheduler.dart';
 
 void main() => runApp(const _App());
 
@@ -132,33 +133,72 @@ const _confettiColors = <Color>[
 //  CONFETTI
 // ─────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────
+//  CANNON CONFETTI
+//  Each particle fires from the left OR right edge of the screen,
+//  shoots inward at a randomised upward angle (like a party cannon),
+//  gravity pulls it down, and it recycles when it exits the bottom.
+// ─────────────────────────────────────────────────────────────
+
+enum _Side { left, right }
+
 class _Particle {
   double x, y, vx, vy, angle, spin, size;
   Color color;
   bool circle;
-  _Particle(math.Random r)
+  double screenW, screenH;
+  _Side side;
+
+  _Particle(math.Random r, {this.screenW = 400, this.screenH = 800})
     : x = 0,
       y = 0,
       vx = 0,
       vy = 0,
       angle = r.nextDouble() * math.pi * 2,
-      spin = (r.nextDouble() - 0.5) * 0.35,
-      size = r.nextDouble() * 9 + 5,
+      spin = (r.nextDouble() - 0.5) * 0.32,
+      size = r.nextDouble() * 11 + 5,
       color = _confettiColors[r.nextInt(_confettiColors.length)],
-      circle = r.nextBool() {
-    final a = r.nextDouble() * math.pi * 2;
-    final s = r.nextDouble() * 15 + 5;
-    vx = math.cos(a) * s;
-    vy = math.sin(a) * s - 6;
+      circle = r.nextBool(),
+      side = r.nextBool() ? _Side.left : _Side.right {
+    _reset(r);
   }
+
+  void _reset(math.Random r) {
+    side = r.nextBool() ? _Side.left : _Side.right;
+    // Cannon mouth: fixed at the edge, at a random height in the upper 65%
+    // Stagger y so bursts don't all appear at once
+    y = r.nextDouble() * screenH * 0.65;
+    x = side == _Side.left ? -screenW / 2 : screenW / 2;
+
+    // Fire angle: shoot inward + upward
+    // Left cannon fires right (positive vx), right cannon fires left (negative vx)
+    final inwardAngle = side == _Side.left
+        ? -math.pi *
+              (0.08 + r.nextDouble() * 0.30) // -15° to -69° from horizontal
+        : math.pi + math.pi * (0.08 + r.nextDouble() * 0.30);
+    final speed = 8.0 + r.nextDouble() * 12.0;
+    vx = math.cos(inwardAngle) * speed;
+    vy = math.sin(inwardAngle) * speed;
+
+    color = _confettiColors[r.nextInt(_confettiColors.length)];
+    size = r.nextDouble() * 11 + 5;
+    circle = r.nextBool();
+  }
+
   void tick() {
     x += vx;
     y += vy;
-    vy += 0.6;
+    vy += 0.28; // gravity — pulls particles downward
+    vx *= 0.992; // gentle air drag
     angle += spin;
+
+    // Recycle when particle exits bottom or goes way off side
+    if (y > screenH + 30 || x.abs() > screenW) {
+      _reset(math.Random());
+    }
   }
 
-  bool get dead => y > 1200;
+  bool get dead => false; // recycled, never permanently dead
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -211,6 +251,9 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
   late final AnimationController _bobCtrl;
   late final Animation<double> _bobAnim;
 
+  // ── dedicated 60fps ticker for confetti ──────────────
+  late final Ticker _confettiTicker;
+
   int get _center => _page.round().clamp(0, _cards.length - 1);
 
   // _prog feeds the CoinSlotPainter — driven by _insertCtrl
@@ -257,7 +300,15 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
     // unused but kept for type safety
     _cardSlide = Tween<double>(begin: 0, end: 0).animate(_overlayCtrl);
     _cardScale = Tween<double>(begin: 1, end: 1).animate(_overlayCtrl);
-    _overlayCtrl.addListener(_tickParticles);
+    // Remove old particle tick from overlayCtrl — it stops after 800ms
+    // Instead use a dedicated Ticker that runs at 60fps while overlay is shown
+    _confettiTicker = createTicker((_) {
+      if (_showOverlay && _particles.isNotEmpty) {
+        setState(() {
+          for (final p in _particles) p.tick();
+        });
+      }
+    });
 
     // eject — card pops from slot and flies up — 900 ms
     _ejectCtrl = AnimationController(
@@ -301,6 +352,7 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
     _ejectCtrl.dispose();
     _bobCtrl.dispose();
     _pulseCtrl.dispose();
+    _confettiTicker.dispose();
     super.dispose();
   }
 
@@ -354,13 +406,41 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
     await Future.delayed(const Duration(milliseconds: 320));
 
     // Fire overlay burst + card eject sequence
-    for (int i = 0; i < 80; i++) _particles.add(_Particle(_rng));
+    // Spawn cannon confetti — fires from both sides
+    // Use 160 particles: 80 from left, 80 from right
+    if (!mounted) return;
+    final sz = MediaQuery.of(context).size;
+    for (int i = 0; i < 160; i++) {
+      final p = _Particle(_rng, screenW: sz.width, screenH: sz.height);
+      // Force alternating sides so both cannons are equally loaded
+      if (i < 80) {
+        p.side = _Side.left;
+        p.x = -sz.width / 2;
+        // stagger y positions so they don't all fire at the same height
+        p.y = (i / 80.0) * sz.height * 0.70;
+        final angle = -math.pi * (0.08 + _rng.nextDouble() * 0.30);
+        final speed = 8.0 + _rng.nextDouble() * 12.0;
+        p.vx = math.cos(angle) * speed;
+        p.vy = math.sin(angle) * speed;
+      } else {
+        p.side = _Side.right;
+        p.x = sz.width / 2;
+        p.y = ((i - 80) / 80.0) * sz.height * 0.70;
+        final angle = math.pi + math.pi * (0.08 + _rng.nextDouble() * 0.30);
+        final speed = 8.0 + _rng.nextDouble() * 12.0;
+        p.vx = math.cos(angle) * speed;
+        p.vy = math.sin(angle) * speed;
+      }
+      _particles.add(p);
+    }
     setState(() => _showOverlay = true);
     _overlayCtrl.forward(from: 0);
     _ejectCtrl.forward(from: 0);
+    _confettiTicker.start(); // start 60fps confetti loop
   }
 
   void _closeOverlay() {
+    _confettiTicker.stop();
     setState(() {
       _showOverlay = false;
       _particles.clear();
@@ -371,13 +451,7 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
     _insertCtrl.reset();
   }
 
-  void _tickParticles() {
-    if (!_showOverlay) return;
-    setState(() {
-      for (final p in _particles) p.tick();
-      _particles.removeWhere((p) => p.dead);
-    });
-  }
+  // _tickParticles removed — confetti is driven by _confettiTicker (60fps Ticker)
 
   @override
   Widget build(BuildContext context) {
@@ -735,11 +809,12 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
         final sw = MediaQuery.of(context).size.width;
 
         // ── Slot screen-space position ─────────────────────
-        // The slot panel is sh*0.32 tall at the bottom of SafeArea.
-        // Housing top y (hy=18) inside that panel → slot center ≈ panel top + 18 + 72/2
-        // In screen coords (from screen center): slot is below center by ~sh*0.30
-        final slotScreenCY = sh * 0.73; // absolute Y of slot on screen
-        final cardRestY = sh * 0.38; // where card settles (screen center-ish)
+        // Slot panel = bottom sh*0.32 of screen → slot housing center at ~sh*0.73
+        final slotScreenCY = sh * 0.74;
+        // Card rests lower so the title text above has breathing room
+        // Layout: title zone = top 0→0.30, card zone = 0.38→0.78, slot = 0.74+
+        final cardRestY =
+            sh * 0.53; // lower center — card sits in middle-lower area
 
         // ── Eject physics (driven by _ejectCtrl 0→1) ──────
         final e = _ejectCtrl.value;
@@ -807,18 +882,19 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    // ── Confetti ──────────────────────────────
+                    // ── LAYER 1: Full-screen confetti rain ────
                     Positioned.fill(
-                      child: CustomPaint(
-                        painter: _ConfettiPainter(particles: _particles),
+                      child: IgnorePointer(
+                        child: CustomPaint(
+                          painter: _ConfettiPainter(particles: _particles),
+                        ),
                       ),
                     ),
 
-                    // ── Burst ring from slot area ──────────────
+                    // ── LAYER 2: Burst ring at slot mouth ─────
                     if (bScale > 0)
                       Positioned(
-                        // position near slot (bottom of screen)
-                        top: sh * 0.58,
+                        top: sh * 0.60,
                         left: 0,
                         right: 0,
                         child: Center(
@@ -827,8 +903,8 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
                             child: Transform.scale(
                               scale: bScale,
                               child: Container(
-                                width: 280,
-                                height: 280,
+                                width: 260,
+                                height: 260,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   border: Border.all(
@@ -854,10 +930,10 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
                         ),
                       ),
 
-                    // ── Light rays from slot (early phase) ────
+                    // ── LAYER 3: Light rays from slot ─────────
                     if (e > 0 && e < 0.45)
                       Positioned(
-                        top: sh * 0.67,
+                        top: sh * 0.68,
                         left: 0,
                         right: 0,
                         child: IgnorePointer(
@@ -870,38 +946,81 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
                         ),
                       ),
 
-                    // ── Title text ────────────────────────────
+                    // ── LAYER 4: TITLE ZONE — top of screen ───
+                    // Pinned to top, fades in with bg
+                    // Zone: 0 → sh*0.28  (gift icon + "Offer activated!")
                     Positioned(
-                      top: 50,
+                      top: 0,
                       left: 0,
                       right: 0,
                       child: Opacity(
-                        opacity: text,
-                        child: Column(
-                          children: [
-                            const _GiftIcon(),
-                            const SizedBox(height: 14),
-                            _ActivatingText(progress: text),
-                          ],
+                        opacity: bg,
+                        child: SafeArea(
+                          bottom: false,
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 56),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const _GiftIcon(),
+                                const SizedBox(height: 12),
+                                // Shimmer title "Offer activated!"
+                                ShaderMask(
+                                  shaderCallback: (b) => const LinearGradient(
+                                    colors: [_kGold, Colors.white, _kGold],
+                                  ).createShader(b),
+                                  child: const Text(
+                                    'Offer activated!',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Opacity(
+                                  opacity: text,
+                                  child: Text(
+                                    'Your welcome gift is ready to use',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.65),
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w400,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     ),
 
-                    // ── THE EJECTED CARD ──────────────────────
-                    // Positioned by offsetY from center, scaleY for snap-open
-                    Transform.translate(
-                      offset: Offset(0, offsetY),
-                      child: Transform.scale(
-                        scaleX: 1.0,
-                        scaleY: scaleY,
-                        child: Transform.rotate(
-                          angle: cardRot,
-                          child: Opacity(
-                            opacity: cardOpacity,
-                            child: _EjectedCard(
-                              card: card,
-                              glowAlpha: glowAlpha,
-                              stampAlpha: stampAlpha,
+                    // ── LAYER 5: EJECTED CARD ─────────────────
+                    // Absolutely positioned by eject physics
+                    // Zone: card rests at sh*0.53 (center-lower area)
+                    Positioned.fill(
+                      child: Align(
+                        alignment: Alignment.center,
+                        child: Transform.translate(
+                          offset: Offset(0, offsetY),
+                          child: Transform.scale(
+                            scaleX: 1.0,
+                            scaleY: scaleY,
+                            child: Transform.rotate(
+                              angle: cardRot,
+                              child: Opacity(
+                                opacity: cardOpacity,
+                                child: _EjectedCard(
+                                  card: card,
+                                  glowAlpha: glowAlpha,
+                                  stampAlpha: stampAlpha,
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -1069,8 +1188,8 @@ class _EjectedCard extends StatelessWidget {
         // gold glow halo behind card
         if (glowAlpha > 0)
           Container(
-            width: 290,
-            height: 380,
+            width: 258,
+            height: 336,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(28),
               boxShadow: [
@@ -1090,10 +1209,10 @@ class _EjectedCard extends StatelessWidget {
 
         // card body
         ClipRRect(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(22),
           child: Container(
-            width: 270,
-            height: 355,
+            width: 240,
+            height: 318,
             color: card.bg,
             child: Stack(
               children: [
@@ -1835,25 +1954,42 @@ class _HoleMaskPainter extends CustomPainter {
 class _ConfettiPainter extends CustomPainter {
   final List<_Particle> particles;
   const _ConfettiPainter({required this.particles});
+
   @override
   void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2, cy = size.height * 0.42;
+    // p.x is relative to screen center; p.y is absolute from screen top
+    final cx = size.width / 2;
     for (final p in particles) {
+      final px = cx + p.x;
+      final py = p.y;
+      // skip if not yet on screen or far below
+      if (py < -p.size || py > size.height + p.size) continue;
+      // clip to screen width with a small margin
+      if (px < -p.size || px > size.width + p.size) continue;
+
       canvas.save();
-      canvas.translate(cx + p.x, cy + p.y);
+      canvas.translate(px, py);
       canvas.rotate(p.angle);
+
       final paint = Paint()..color = p.color;
-      if (p.circle)
+
+      if (p.circle) {
+        // Round dot
         canvas.drawCircle(Offset.zero, p.size / 2, paint);
-      else
-        canvas.drawRect(
-          Rect.fromCenter(
-            center: Offset.zero,
-            width: p.size,
-            height: p.size * 0.55,
+      } else {
+        // Rectangle ribbon — elongated for better visual flutter
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromCenter(
+              center: Offset.zero,
+              width: p.size,
+              height: p.size * 0.42,
+            ),
+            const Radius.circular(2),
           ),
           paint,
         );
+      }
       canvas.restore();
     }
   }
