@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -13,10 +14,16 @@ class _App extends StatelessWidget {
     home: Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [Color(0xFF1A1714), Color(0xFF8C7F32), Color(0xFF1A1714)],
-          stops: [0.0, 0.5, 1.0],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF0D0B1E),
+            Color(0xFF1A1040),
+            Color(0xFF2D1B69),
+            Color(0xFF1A2744),
+            Color(0xFF0F1E2E),
+          ],
+          stops: [0.0, 0.25, 0.5, 0.75, 1.0],
         ),
       ),
       child: const WelcomeGiftScreen(),
@@ -108,6 +115,7 @@ const _kW = 185.0;
 const _kH = 268.0;
 const _kGap = 220.0;
 const _kGold = Color(0xFFFFD700);
+const _kPurple = Color(0xFF9B59FF);
 
 const _confettiColors = <Color>[
   Color(0xFFFFD700),
@@ -128,7 +136,6 @@ class _Particle {
   double x, y, vx, vy, angle, spin, size;
   Color color;
   bool circle;
-
   _Particle(math.Random r)
     : x = 0,
       y = 0,
@@ -140,11 +147,10 @@ class _Particle {
       color = _confettiColors[r.nextInt(_confettiColors.length)],
       circle = r.nextBool() {
     final a = r.nextDouble() * math.pi * 2;
-    final speed = r.nextDouble() * 15 + 5;
-    vx = math.cos(a) * speed;
-    vy = math.sin(a) * speed - 6;
+    final s = r.nextDouble() * 15 + 5;
+    vx = math.cos(a) * s;
+    vy = math.sin(a) * s - 6;
   }
-
   void tick() {
     x += vx;
     y += vy;
@@ -167,54 +173,54 @@ class WelcomeGiftScreen extends StatefulWidget {
 
 class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
     with TickerProviderStateMixin {
-  // carousel
+  // ── carousel ──────────────────────────────────────────
   double _page = 2.0;
   bool _hDrag = false;
   late final AnimationController _snapCtrl;
   late Animation<double> _snapAnim;
 
-  // drag-down
-  double _dragY = 0;
+  // ── ATM insert animation ───────────────────────────────
+  // _insertCtrl: 0→1 drives the card sliding into the slot
+  //   0.0 = card at rest in carousel
+  //   0.0→0.6 = card moves right + shrinks toward slot mouth
+  //   0.6→1.0 = card fully inside (invisible), slot reads "ACCEPTED"
+  late final AnimationController _insertCtrl;
+  bool _isInserting = false; // true while long-press held or animating
 
-  // sink
-  late final AnimationController _sinkCtrl;
-
-  // overlay burst
+  // ── overlay / burst ────────────────────────────────────
   bool _showOverlay = false;
   late final AnimationController _overlayCtrl;
-  late final Animation<double> _bgFade;
-  late final Animation<double> _textFade;
-  late final Animation<double> _cardSlide;
-  late final Animation<double> _cardScale;
-  late final Animation<double> _burstScale;
-  late final Animation<double> _burstFade;
+  late final Animation<double> _bgFade,
+      _textFade,
+      _cardSlide,
+      _cardScale,
+      _burstScale,
+      _burstFade;
 
-  // confetti
   final _rng = math.Random();
   final List<_Particle> _particles = [];
 
-  // chevron
-  late final AnimationController _chevCtrl;
-  late final Animation<double> _chevY;
+  // ── pulse for slot scan beam ───────────────────────────
+  late final AnimationController _pulseCtrl;
 
-  // entry
-  late final AnimationController _entryCtrl;
-  late final Animation<double> _entryAnim;
+  // ── card eject controllers ─────────────────────────────
+  // Phase 0.00→0.12  scaleY snaps 0.04→1.0 (pops out of slot gap)
+  // Phase 0.12→0.65  flies upward with easeOutBack overshoot
+  // Phase 0.65→1.00  settled, bob controller takes over
+  late final AnimationController _ejectCtrl;
+  late final AnimationController _bobCtrl;
+  late final Animation<double> _bobAnim;
 
   int get _center => _page.round().clamp(0, _cards.length - 1);
-  double get _prog => (_dragY / 90.0).clamp(0.0, 1.0);
 
-  double get _cardDy {
-    if (_dragY <= 80) return _dragY;
-    return 80 + (_dragY - 80) * 0.35;
-  }
-
-  double get _totalDy => _cardDy + _sinkCtrl.value * 400;
+  // _prog feeds the CoinSlotPainter — driven by _insertCtrl
+  double get _prog => _insertCtrl.value;
 
   @override
   void initState() {
     super.initState();
 
+    // carousel snap
     _snapCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 380),
@@ -222,85 +228,83 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
     _snapAnim = Tween<double>(begin: _page, end: _page).animate(_snapCtrl);
     _snapCtrl.addListener(() => setState(() => _page = _snapAnim.value));
 
-    _sinkCtrl = AnimationController(
+    // ATM insert — card drops into slot over 700 ms
+    _insertCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 520),
+      duration: const Duration(milliseconds: 700),
     );
-    _sinkCtrl.addListener(() => setState(() {}));
+    _insertCtrl.addListener(() => setState(() {}));
 
+    // overlay burst (bg fade + burst ring) — short 800ms
     _overlayCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1600),
+      duration: const Duration(milliseconds: 800),
     );
-    _bgFade = _interval(0.00, 0.18, Curves.easeOut);
-    _textFade = _interval(0.10, 0.28, Curves.easeOut);
-    _burstScale = Tween<double>(begin: 0.0, end: 1.0).animate(
+    _bgFade = _iv(0.00, 0.50, Curves.easeOut);
+    _textFade = _iv(0.20, 0.70, Curves.easeOut);
+    _burstScale = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(
         parent: _overlayCtrl,
-        curve: const Interval(0.00, 0.22, curve: Curves.easeOutBack),
+        curve: const Interval(0.00, 0.45, curve: Curves.easeOutBack),
       ),
     );
-    _burstFade = Tween<double>(begin: 1.0, end: 0.0).animate(
+    _burstFade = Tween<double>(begin: 1, end: 0).animate(
       CurvedAnimation(
         parent: _overlayCtrl,
-        curve: const Interval(0.18, 0.38, curve: Curves.easeIn),
+        curve: const Interval(0.35, 0.65, curve: Curves.easeIn),
       ),
     );
-    _cardSlide = Tween<double>(begin: 700.0, end: 0.0).animate(
-      CurvedAnimation(
-        parent: _overlayCtrl,
-        curve: const Interval(0.38, 1.00, curve: Curves.easeOutBack),
-      ),
-    );
-    _cardScale = Tween<double>(begin: 0.35, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _overlayCtrl,
-        curve: const Interval(0.38, 1.00, curve: Curves.easeOutBack),
-      ),
-    );
+    // unused but kept for type safety
+    _cardSlide = Tween<double>(begin: 0, end: 0).animate(_overlayCtrl);
+    _cardScale = Tween<double>(begin: 1, end: 1).animate(_overlayCtrl);
     _overlayCtrl.addListener(_tickParticles);
 
-    _chevCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 750),
-    )..repeat(reverse: true);
-    _chevY = Tween<double>(
-      begin: 0.0,
-      end: 7.0,
-    ).animate(CurvedAnimation(parent: _chevCtrl, curve: Curves.easeInOut));
-
-    _entryCtrl = AnimationController(
+    // eject — card pops from slot and flies up — 900 ms
+    _ejectCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
     );
-    _entryAnim = CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutBack);
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) _entryCtrl.forward();
-    });
+    _ejectCtrl.addListener(() => setState(() {}));
+
+    // bob — gentle float after card settles
+    _bobCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2200),
+    )..repeat(reverse: true);
+    _bobAnim = Tween<double>(
+      begin: -5.0,
+      end: 5.0,
+    ).animate(CurvedAnimation(parent: _bobCtrl, curve: Curves.easeInOut));
+    _bobCtrl.addListener(() => setState(() {}));
+
+    // slot scan pulse
+    _pulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat(reverse: true);
+    _pulseCtrl.addListener(() => setState(() {}));
   }
 
-  Animation<double> _interval(double t0, double t1, Curve curve) =>
-      Tween<double>(begin: 0.0, end: 1.0).animate(
+  Animation<double> _iv(double t0, double t1, Curve c) =>
+      Tween<double>(begin: 0, end: 1).animate(
         CurvedAnimation(
           parent: _overlayCtrl,
-          curve: Interval(t0, t1, curve: curve),
+          curve: Interval(t0, t1, curve: c),
         ),
       );
 
   @override
   void dispose() {
     _snapCtrl.dispose();
-    _sinkCtrl.dispose();
+    _insertCtrl.dispose();
     _overlayCtrl.dispose();
-    _chevCtrl.dispose();
-    _entryCtrl.dispose();
+    _ejectCtrl.dispose();
+    _bobCtrl.dispose();
+    _pulseCtrl.dispose();
     super.dispose();
   }
 
-  // ─────────────────────────────────────────────────────
-  //  GESTURES
-  // ─────────────────────────────────────────────────────
-
+  // ── Carousel swipe ─────────────────────────────────────
   void _onHStart(DragStartDetails d) {
     _snapCtrl.stop();
     _hDrag = true;
@@ -309,8 +313,9 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
   void _onHUpdate(DragUpdateDetails d) {
     if (!_hDrag) return;
     setState(
-      () =>
-          _page = (_page - d.delta.dx / _kGap).clamp(0.0, _cards.length - 1.0),
+      () => _page = (_page - d.delta.dx / _kGap)
+          .clamp(0.0, _cards.length - 1.0)
+          .toDouble(),
     );
   }
 
@@ -326,63 +331,44 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
   void _snapTo(int i) {
     _snapAnim = Tween<double>(
       begin: _page,
-      end: i.toDouble().clamp(0.0, _cards.length - 1.0),
+      end: i.toDouble().clamp(0.0, _cards.length - 1.0).toDouble(),
     ).animate(CurvedAnimation(parent: _snapCtrl, curve: Curves.easeOutCubic));
-    _snapCtrl.forward(from: 0.0);
+    _snapCtrl.forward(from: 0);
   }
 
-  void _onVUpdate(DragUpdateDetails d) {
-    if (d.delta.dy <= 0) return;
-    setState(() => _dragY = (_dragY + d.delta.dy).clamp(0.0, 160.0));
-  }
-
-  void _onVEnd(DragEndDetails d) {
-    _dragY >= 65 ? _activate() : setState(() => _dragY = 0);
-  }
-
-  void _onLPStart(LongPressStartDetails _) => HapticFeedback.lightImpact();
-  void _onLPMove(LongPressMoveUpdateDetails d) {
-    final dy = d.offsetFromOrigin.dy;
-    if (dy <= 0) return;
-    setState(() => _dragY = dy.clamp(0.0, 160.0));
-  }
-
-  void _onLPEnd(LongPressEndDetails _) {
-    _dragY >= 65 ? _activate() : setState(() => _dragY = 0);
-  }
-
-  // ─────────────────────────────────────────────────────
-  //  ACTIVATION SEQUENCE
-  // ─────────────────────────────────────────────────────
-
-  Future<void> _activate() async {
+  // ── Long press = ATM insert ────────────────────────────
+  void _onLongPress() async {
+    if (_isInserting) return;
+    _isInserting = true;
     HapticFeedback.mediumImpact();
 
-    await _sinkCtrl.animateTo(
-      1.0,
-      curve: Curves.easeIn,
-      duration: const Duration(milliseconds: 480),
-    );
+    // Make sure selected card is snapped to center first
+    _snapTo(_center);
+    await Future.delayed(const Duration(milliseconds: 200));
 
+    // Animate insert 0 → 1
+    await _insertCtrl.animateTo(1.0, curve: Curves.easeInCubic);
+
+    // Brief pause at "ACCEPTED" moment
     HapticFeedback.heavyImpact();
+    await Future.delayed(const Duration(milliseconds: 320));
 
+    // Fire overlay burst + card eject sequence
     for (int i = 0; i < 80; i++) _particles.add(_Particle(_rng));
-
-    setState(() {
-      _showOverlay = true;
-    });
-    _sinkCtrl.reset();
-    _dragY = 0;
-
-    _overlayCtrl.forward(from: 0.0);
+    setState(() => _showOverlay = true);
+    _overlayCtrl.forward(from: 0);
+    _ejectCtrl.forward(from: 0);
   }
 
   void _closeOverlay() {
     setState(() {
       _showOverlay = false;
       _particles.clear();
+      _isInserting = false;
     });
     _overlayCtrl.reset();
+    _ejectCtrl.reset();
+    _insertCtrl.reset();
   }
 
   void _tickParticles() {
@@ -393,160 +379,165 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
     });
   }
 
-  // ─────────────────────────────────────────────────────
-  //  BUILD
-  // ─────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: Listenable.merge([_sinkCtrl, _entryCtrl, _chevCtrl]),
-      builder: (context, _) {
-        final p = _prog;
-        final entry = _entryAnim.value;
+    final sw = MediaQuery.of(context).size.width;
+    final sh = MediaQuery.of(context).size.height;
+    final p = _prog; // 0..1 insert progress
 
-        return Scaffold(
-          backgroundColor: Colors.transparent,
-          body: Stack(
-            children: [
-              SafeArea(
-                child: Column(
-                  children: [
-                    _topBar(),
-                    const SizedBox(height: 12),
-                    const _GiftIcon(),
-                    const SizedBox(height: 16),
-                    _title(p),
-                    const SizedBox(height: 32),
-                    Expanded(child: _carousel(p)),
-                    Container(
-  height: 160,
-  decoration: BoxDecoration(
-    gradient: LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: [
-        Colors.transparent,
-        const Color(0xFF6B5E1E).withOpacity(0.85),
-        const Color(0xFF4A4210),
-      ],
-      stops: const [0.0, 0.4, 1.0],
-    ),
-  ),
-),
-                  ],
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        children: [
+          // ambient bg glow
+          Positioned(
+            top: sh * 0.2,
+            left: sw / 2 - 160,
+            child: IgnorePointer(
+              child: Container(
+                width: 320,
+                height: 320,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [_kPurple.withOpacity(0.10), Colors.transparent],
+                  ),
                 ),
               ),
-              if (_showOverlay) _overlay(),
-            ],
+            ),
           ),
-        );
-      },
-    );
-  }
 
-  // ─────────────────────────────────────────────────────
-  //  TOP BAR
-  // ─────────────────────────────────────────────────────
+          SafeArea(
+            child: Column(
+              children: [
+                _topBar(),
+                const SizedBox(height: 12),
+                const _GiftIcon(),
+                const SizedBox(height: 16),
+                _title(p),
+                const SizedBox(height: 32),
+                Expanded(child: _carousel(p)),
 
-  Widget _topBar() => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-    child: Row(
-      children: [
-        GestureDetector(
-          onTap: () => Navigator.maybePop(context),
-          child: const Icon(
-            Icons.chevron_left,
-            color: Colors.white70,
-            size: 26,
+                // ── COIN SLOT PANEL ──────────────────────────
+                SizedBox(
+                  height: sh * 0.32,
+                  width: double.infinity,
+                  child: CustomPaint(
+                    painter: _CoinSlotPainter(
+                      progress: p,
+                      pulse: _pulseCtrl.value,
+                      cardWidth: _kW,
+                      cardColor: _cards[_center].bg,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        const Spacer(),
-        const Text(
-          'T&Cs',
-          style: TextStyle(
-            color: _kGold,
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    ),
-  );
-
-  // ─────────────────────────────────────────────────────
-  //  TITLE
-  // ─────────────────────────────────────────────────────
-
-  Widget _title(double p) {
-    final release = p > 0.6;
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 200),
-      child: Text(
-        release ? 'Release to\nactivate offer!' : 'Choose your\nwelcome gift',
-        key: ValueKey(release),
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          color: release ? _kGold : Colors.white,
-          fontSize: 26,
-          fontWeight: FontWeight.w700,
-          height: 1.25,
-        ),
-      ),
-    );
-  }
-
-  // ─────────────────────────────────────────────────────
-  //  CAROUSEL
-  // ─────────────────────────────────────────────────────
-
-  Widget _carousel(double p) {
-    return GestureDetector(
-      onHorizontalDragStart: _onHStart,
-      onHorizontalDragUpdate: _onHUpdate,
-      onHorizontalDragEnd: _onHEnd,
-      onVerticalDragUpdate: _onVUpdate,
-      onVerticalDragEnd: _onVEnd,
-      onLongPressStart: _onLPStart,
-      onLongPressMoveUpdate: _onLPMove,
-      onLongPressEnd: _onLPEnd,
-      behavior: HitTestBehavior.opaque,
-      child: Stack(
-        alignment: Alignment.center,
-        clipBehavior: Clip.hardEdge,
-        children: [
-          // ── L1: glow pool — removed ──
-          const SizedBox.shrink(),
-
-          // ── L2: hole dark background ──
-          _holeBack(p),
-
-          // ── L3: gold border ring + side glow ──
-          _borderRing(p),
-
-          // ── L4: side cards ──
-          ..._sideCards(),
-
-          // ── L5: center card ──
-          _centerCard(),
-
-          // ── L6: hole front mask ──
-          _holeMask(p),
-
-          // ── L7: chevron ──
-          if (p > 0) _chevronHint(p),
+          if (_showOverlay) _overlay(),
         ],
       ),
     );
   }
 
   // ─────────────────────────────────────────────────────
-  //  L2 — HOLE BACK
-  // ─────────────────────────────────────────────────────
+  Widget _topBar() => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+    child: Row(
+      children: [
+        GestureDetector(
+          onTap: () => Navigator.maybePop(context),
+          child: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withOpacity(0.08),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.15),
+                width: 1,
+              ),
+            ),
+            child: const Icon(
+              Icons.chevron_left,
+              color: Colors.white70,
+              size: 22,
+            ),
+          ),
+        ),
+        const Spacer(),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            color: _kGold.withOpacity(0.12),
+            border: Border.all(color: _kGold.withOpacity(0.30), width: 1),
+          ),
+          child: const Text(
+            'T&Cs',
+            style: TextStyle(
+              color: _kGold,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _title(double p) {
+    final inserting = p > 0.05;
+    final accepted = p > 0.85;
+    final text = accepted
+        ? 'Offer activated!'
+        : inserting
+        ? 'Inserting card...'
+        : 'Choose your\nwelcome gift';
+    final color = accepted
+        ? const Color(0xFF44FF88)
+        : inserting
+        ? _kGold
+        : Colors.white;
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 250),
+      child: Text(
+        text,
+        key: ValueKey(text),
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: color,
+          fontSize: 26,
+          fontWeight: FontWeight.w700,
+          height: 1.25,
+          shadows: [Shadow(color: color.withOpacity(0.5), blurRadius: 14)],
+        ),
+      ),
+    );
+  }
+
+  Widget _carousel(double p) => GestureDetector(
+    onHorizontalDragStart: _isInserting ? null : _onHStart,
+    onHorizontalDragUpdate: _isInserting ? null : _onHUpdate,
+    onHorizontalDragEnd: _isInserting ? null : _onHEnd,
+    behavior: HitTestBehavior.opaque,
+    child: Stack(
+      alignment: Alignment.center,
+      clipBehavior: Clip.hardEdge,
+      children: [
+        const SizedBox.shrink(),
+        _holeBack(p),
+        _borderRing(p),
+        ..._sideCards(),
+        _centerCard(p),
+        _holeMask(p),
+      ],
+    ),
+  );
 
   Widget _holeBack(double p) {
-    if (p == 0 && _sinkCtrl.value == 0) return const SizedBox.shrink();
-    final opacity = ((p + _sinkCtrl.value) * 1.6).clamp(0.0, 1.0);
+    if (p == 0) return const SizedBox.shrink();
+    final opacity = (p * 1.8).clamp(0.0, 1.0).toDouble();
     return IgnorePointer(
       child: Opacity(
         opacity: opacity,
@@ -570,117 +561,128 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
     );
   }
 
-  // ─────────────────────────────────────────────────────
-  //  L3 — BORDER RING + SIDE GLOW
-  // ─────────────────────────────────────────────────────
-
   Widget _borderRing(double p) {
+    // Border glows at idle, fades as card inserts
+    final op = (0.40 - p * 0.40).clamp(0.0, 1.0).toDouble();
     return IgnorePointer(
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // Soft side + top glow using CustomPaint
-          if (p > 0)
-            SizedBox(
-              width: _kW + 300,
-              height: _kH + 300,
-              child: CustomPaint(painter: _SideGlowPainter(p)),
-            ),
-
-          // Border stroke
-          Container(
-            width: _kW + 6,
-            height: _kH + 6,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(23),
-              border: Border.all(
-                color: _kGold.withOpacity((0.40 + p * 0.60).clamp(0, 1)),
-                width: 2.5 + p * 2.5,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ─────────────────────────────────────────────────────
-  //  L5 — CENTER CARD
-  // ─────────────────────────────────────────────────────
-
-  Widget _centerCard() {
-    final slot = _center - _page;
-    return Transform.translate(
-      offset: Offset(slot * _kGap, _totalDy),
-      child: GestureDetector(
-        onTap: () => _snapTo(_center),
-        child: _CardWidget(card: _cards[_center]),
-      ),
-    );
-  }
-
-  // ─────────────────────────────────────────────────────
-  //  L6 — HOLE MASK
-  // ─────────────────────────────────────────────────────
-
-  Widget _holeMask(double p) {
-    final op = (p * 2.0 + _sinkCtrl.value * 2.0).clamp(0.0, 1.0);
-    if (op <= 0) return const SizedBox.shrink();
-    return IgnorePointer(
-      child: CustomPaint(painter: _HoleMaskPainter(opacity: op)),
-    );
-  }
-
-  // ─────────────────────────────────────────────────────
-  //  SIDE CARDS
-  // ─────────────────────────────────────────────────────
-
-  List<Widget> _sideCards() {
-    final out = <Widget>[];
-    for (int i = 0; i < _cards.length; i++) {
-      if (i == _center) continue;
-      final slot = i - _page;
-      if (slot.abs() > 1.8) continue;
-      out.add(
-        Transform.translate(
-          offset: Offset(slot * _kGap, slot.abs() * 18),
-          child: Transform.rotate(
-            angle: slot * 0.22,
-            child: Transform.scale(
-              scale: (1 - slot.abs() * 0.08).clamp(0.84, 1.0),
-              child: GestureDetector(
-                onTap: () => _snapTo(i),
-                child: _CardWidget(card: _cards[i]),
-              ),
-            ),
-          ),
+      child: Container(
+        width: _kW + 6,
+        height: _kH + 6,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(23),
+          border: Border.all(color: _kGold.withOpacity(op), width: 2.5),
         ),
-      );
-    }
-    return out;
+      ),
+    );
   }
 
-  // ─────────────────────────────────────────────────────
-  //  CHEVRON HINT
-  // ─────────────────────────────────────────────────────
+  // ATM vertical insert animation:
+  //   p=0.00→0.45  card floats down toward the slot (moves downward)
+  //   p=0.45→0.72  card aligns over slot, scaleY starts collapsing
+  //   p=0.72→0.90  card flattens edge-on — scaleY → 0 (going through the gap)
+  //   p=0.90→1.00  fully inside, fades out
+  Widget _centerCard(double p) {
+    final slot = _center - _page;
+    final screenH = MediaQuery.of(context).size.height;
 
-  Widget _chevronHint(double p) {
-    final opacity = p <= 0.5 ? p * 2.0 : (1.0 - p) * 2.0;
-    return Positioned(
-      bottom: -(_kH / 2) + 8,
-      child: IgnorePointer(
+    double insertDy, scaleX, scaleY, opacity;
+
+    if (p <= 0.45) {
+      // floating downward toward slot
+      final t = p / 0.45;
+      final ease = 1 - math.pow(1 - t, 3).toDouble();
+      insertDy = ease * (screenH * 0.18); // moves down toward slot area
+      scaleX = 1.0;
+      scaleY = 1.0;
+      opacity = 1.0;
+    } else if (p <= 0.72) {
+      // aligning — nearly at slot top, begins to narrow
+      final t = (p - 0.45) / 0.27;
+      final ease = t * t * t;
+      insertDy = (screenH * 0.18) + ease * (screenH * 0.04);
+      scaleX = 1.0;
+      scaleY = 1.0 - ease * 0.35; // slight squish preview
+      opacity = 1.0;
+    } else if (p <= 0.90) {
+      // ENTERING SLOT — scaleY collapses to near zero (card going in edge-first)
+      final t = (p - 0.72) / 0.18;
+      final ease = t * t * t;
+      insertDy = (screenH * 0.22) + ease * (screenH * 0.03);
+      scaleX = 1.0;
+      scaleY = (0.65 - ease * 0.65).clamp(0.0, 1.0).toDouble(); // 0.65 → 0
+      opacity = 1.0;
+    } else {
+      // fully inside — fade out
+      final t = (p - 0.90) / 0.10;
+      insertDy = screenH * 0.25;
+      scaleX = 1.0;
+      scaleY = 0.0;
+      opacity = (1.0 - t).clamp(0.0, 1.0).toDouble();
+    }
+
+    // Gold glow ring appears around card as it approaches slot
+    final glowOpacity = p > 0.3
+        ? ((p - 0.3) / 0.5).clamp(0.0, 0.6).toDouble()
+        : 0.0;
+
+    return Transform.translate(
+      offset: Offset(slot * _kGap, insertDy),
+      child: Transform.scale(
+        scaleX: scaleX,
+        scaleY: scaleY.clamp(0.0, 1.0).toDouble(),
         child: Opacity(
-          opacity: opacity.clamp(0.0, 1.0),
-          child: AnimatedBuilder(
-            animation: _chevY,
-            builder: (_, child) => Transform.translate(
-              offset: Offset(0, _chevY.value),
-              child: child,
-            ),
-            child: Column(
+          opacity: opacity,
+          child: GestureDetector(
+            onTap: _isInserting ? null : () => _snapTo(_center),
+            onLongPress: _isInserting ? null : _onLongPress,
+            child: Stack(
+              alignment: Alignment.center,
               children: [
-                Icon(Icons.expand_more, color: _kGold.withOpacity(0.4), size: 26),
-                Icon(Icons.expand_more, color: _kGold, size: 26),
+                // gold glow halo when near slot
+                if (glowOpacity > 0)
+                  Container(
+                    width: _kW + 20,
+                    height: _kH + 20,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _kGold.withOpacity(glowOpacity),
+                          blurRadius: 24,
+                          spreadRadius: 4,
+                        ),
+                      ],
+                    ),
+                  ),
+                _CardWidget(card: _cards[_center]),
+                // "hold to insert" hint
+                if (!_isInserting)
+                  Positioned(
+                    bottom: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.55),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: _kGold.withOpacity(0.35),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: const Text(
+                        'Hold to insert',
+                        style: TextStyle(
+                          color: _kGold,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -689,136 +691,186 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
     );
   }
 
-  // ─────────────────────────────────────────────────────
-  //  DOTS
-  // ─────────────────────────────────────────────────────
+  Widget _holeMask(double p) {
+    final op = (p * 2.0).clamp(0.0, 1.0).toDouble();
+    if (op <= 0) return const SizedBox.shrink();
+    return IgnorePointer(
+      child: CustomPaint(painter: _HoleMaskPainter(opacity: op)),
+    );
+  }
 
-  Widget _dots() => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 10),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(_cards.length, (i) {
-        final active = i == _center;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 250),
-          margin: const EdgeInsets.symmetric(horizontal: 4),
-          width: active ? 20 : 6,
-          height: 6,
-          decoration: BoxDecoration(
-            color: active ? _kGold : Colors.white.withOpacity(0.30),
-            borderRadius: BorderRadius.circular(3),
+  List<Widget> _sideCards() {
+    return [
+      for (int i = 0; i < _cards.length; i++)
+        if (i != _center && (i - _page).abs() <= 1.8)
+          Transform.translate(
+            offset: Offset((i - _page) * _kGap, (i - _page).abs() * 18),
+            child: Transform.rotate(
+              angle: (i - _page) * 0.22,
+              child: Transform.scale(
+                scale: (1.0 - (i - _page).abs() * 0.08)
+                    .clamp(0.84, 1.0)
+                    .toDouble(),
+                child: GestureDetector(
+                  onTap: () => _snapTo(i),
+                  child: _CardWidget(card: _cards[i]),
+                ),
+              ),
+            ),
           ),
-        );
-      }),
-    ),
-  );
-
-  // ─────────────────────────────────────────────────────
-  //  DRAG LABEL
-  // ─────────────────────────────────────────────────────
-
-  Widget _dragLabel(double p) => Padding(
-    padding: const EdgeInsets.only(bottom: 4),
-    child: Column(
-      children: [
-        AnimatedBuilder(
-          animation: _chevY,
-          builder: (_, child) => Transform.translate(
-            offset: Offset(0, _chevY.value),
-            child: child,
-          ),
-          child: Column(
-            children: [
-              Icon(Icons.expand_more, color: _kGold.withOpacity(0.4), size: 22),
-              Icon(Icons.expand_more, color: _kGold, size: 22),
-            ],
-          ),
-        ),
-        const SizedBox(height: 4),
-        AnimatedDefaultTextStyle(
-          duration: const Duration(milliseconds: 200),
-          style: TextStyle(
-            color: Color.lerp(_kGold, Colors.white, p)!,
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-          ),
-          child: Text(
-            p > 0.6 ? 'Release to activate!' : 'Drag down to activate offer',
-          ),
-        ),
-      ],
-    ),
-  );
-
-  // ─────────────────────────────────────────────────────
-  //  BOTTOM BAR
-  // ─────────────────────────────────────────────────────
-
-  Widget _bottomBar(double entry, double p) => Transform.translate(
-    offset: Offset(0, (1 - entry) * 80),
-    child: Opacity(
-      opacity: entry.clamp(0.0, 1.0),
-      child: _WavePillBar(progress: p),
-    ),
-  );
-
-  // ─────────────────────────────────────────────────────
-  //  OVERLAY
-  // ─────────────────────────────────────────────────────
+    ];
+  }
 
   Widget _overlay() {
+    // Listen to both overlayCtrl (bg/burst) and ejectCtrl (card physics)
     return AnimatedBuilder(
-      animation: _overlayCtrl,
+      animation: Listenable.merge([_overlayCtrl, _ejectCtrl, _bobCtrl]),
       builder: (context, _) {
         final bg = _bgFade.value;
         final text = _textFade.value;
         final bScale = _burstScale.value;
         final bFade = _burstFade.value;
-        final slide = _cardSlide.value;
-        final scale = _cardScale.value;
         final card = _cards[_center];
+        final sh = MediaQuery.of(context).size.height;
+        final sw = MediaQuery.of(context).size.width;
+
+        // ── Slot screen-space position ─────────────────────
+        // The slot panel is sh*0.32 tall at the bottom of SafeArea.
+        // Housing top y (hy=18) inside that panel → slot center ≈ panel top + 18 + 72/2
+        // In screen coords (from screen center): slot is below center by ~sh*0.30
+        final slotScreenCY = sh * 0.73; // absolute Y of slot on screen
+        final cardRestY = sh * 0.38; // where card settles (screen center-ish)
+
+        // ── Eject physics (driven by _ejectCtrl 0→1) ──────
+        final e = _ejectCtrl.value;
+
+        double cardY, scaleY, cardOpacity, cardRot;
+
+        if (e <= 0.12) {
+          // ── Phase 1: SNAP OPEN from slot gap ──────────────
+          // scaleY pops from near-zero to full height rapidly
+          final t = (e / 0.12).clamp(0.0, 1.0);
+          final ease = 1.0 - math.pow(1.0 - t, 2).toDouble();
+          cardY = slotScreenCY; // starts at slot level
+          scaleY = 0.04 + ease * 0.96; // 0.04 → 1.0
+          cardOpacity = 1.0;
+          cardRot = 0.0;
+        } else if (e <= 0.65) {
+          // ── Phase 2: FLY UP with easeOutBack overshoot ────
+          final t = ((e - 0.12) / 0.53).clamp(0.0, 1.0);
+          // easeOutBack: overshoots target then settles
+          const c1 = 1.70158, c3 = c1 + 1.0;
+          final ease =
+              1.0 + c3 * math.pow(t - 1.0, 3) + c1 * math.pow(t - 1.0, 2);
+          cardY = slotScreenCY + (cardRestY - slotScreenCY) * ease;
+          scaleY = 1.0;
+          cardOpacity = 1.0;
+          // slight tilt at peak of flight
+          cardRot = math.sin(t * math.pi) * 0.05;
+        } else {
+          // ── Phase 3: FLOAT gently with bob ────────────────
+          cardY = cardRestY + _bobAnim.value;
+          scaleY = 1.0;
+          cardOpacity = 1.0;
+          cardRot = 0.0;
+        }
+
+        // Translate from absolute screen Y to offset from screen center
+        final centerY = sh / 2.0;
+        final offsetY = cardY - centerY;
+
+        // Card glow — strong when first ejected, fades after settle
+        final glowAlpha = e < 0.65
+            ? (e / 0.65).clamp(0.0, 0.7).toDouble()
+            : (1.0 - (e - 0.65) / 0.35).clamp(0.0, 0.5).toDouble();
+
+        // "ACTIVE" stamp opacity — appears after card settles
+        final stampAlpha = e > 0.60
+            ? ((e - 0.60) / 0.25).clamp(0.0, 1.0).toDouble()
+            : 0.0;
 
         return Positioned.fill(
           child: GestureDetector(
             onTap: _closeOverlay,
             child: Container(
-              color: Colors.black.withOpacity(0.92 * bg),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    const Color(0xFF0D0B1E).withOpacity(0.96 * bg),
+                    const Color(0xFF2D1B69).withOpacity(0.94 * bg),
+                  ],
+                ),
+              ),
               child: SafeArea(
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
+                    // ── Confetti ──────────────────────────────
                     Positioned.fill(
                       child: CustomPaint(
                         painter: _ConfettiPainter(particles: _particles),
                       ),
                     ),
 
+                    // ── Burst ring from slot area ──────────────
                     if (bScale > 0)
-                      Opacity(
-                        opacity: bFade,
-                        child: Transform.scale(
-                          scale: bScale,
-                          child: Container(
-                            width: 320,
-                            height: 320,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: _kGold.withOpacity(0.8),
-                                width: 3,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: _kGold.withOpacity(0.6),
-                                  blurRadius: 40,
-                                  spreadRadius: 10,
+                      Positioned(
+                        // position near slot (bottom of screen)
+                        top: sh * 0.58,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: Opacity(
+                            opacity: bFade,
+                            child: Transform.scale(
+                              scale: bScale,
+                              child: Container(
+                                width: 280,
+                                height: 280,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: _kGold.withOpacity(0.85),
+                                    width: 3,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: _kGold.withOpacity(0.55),
+                                      blurRadius: 60,
+                                      spreadRadius: 16,
+                                    ),
+                                    BoxShadow(
+                                      color: _kPurple.withOpacity(0.35),
+                                      blurRadius: 80,
+                                      spreadRadius: 22,
+                                    ),
+                                  ],
                                 ),
-                              ],
+                              ),
                             ),
                           ),
                         ),
                       ),
 
+                    // ── Light rays from slot (early phase) ────
+                    if (e > 0 && e < 0.45)
+                      Positioned(
+                        top: sh * 0.67,
+                        left: 0,
+                        right: 0,
+                        child: IgnorePointer(
+                          child: CustomPaint(
+                            painter: _SlotRaysPainter(
+                              progress: (e / 0.45).clamp(0.0, 1.0),
+                              screenWidth: sw,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                    // ── Title text ────────────────────────────
                     Positioned(
                       top: 50,
                       left: 0,
@@ -835,17 +887,28 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
                       ),
                     ),
 
+                    // ── THE EJECTED CARD ──────────────────────
+                    // Positioned by offsetY from center, scaleY for snap-open
                     Transform.translate(
-                      offset: Offset(0, slide),
+                      offset: Offset(0, offsetY),
                       child: Transform.scale(
-                        scale: scale,
-                        child: Opacity(
-                          opacity: (scale * 1.8).clamp(0.0, 1.0),
-                          child: _ActivatedCard(card: card),
+                        scaleX: 1.0,
+                        scaleY: scaleY,
+                        child: Transform.rotate(
+                          angle: cardRot,
+                          child: Opacity(
+                            opacity: cardOpacity,
+                            child: _EjectedCard(
+                              card: card,
+                              glowAlpha: glowAlpha,
+                              stampAlpha: stampAlpha,
+                            ),
+                          ),
                         ),
                       ),
                     ),
 
+                    // ── Close button ──────────────────────────
                     Positioned(
                       top: 14,
                       left: 20,
@@ -853,30 +916,59 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
                         opacity: bg,
                         child: GestureDetector(
                           onTap: _closeOverlay,
-                          child: const Icon(
-                            Icons.close,
-                            color: Colors.white70,
-                            size: 26,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      top: 14,
-                      right: 20,
-                      child: Opacity(
-                        opacity: bg,
-                        child: const Text(
-                          'T&Cs',
-                          style: TextStyle(
-                            color: _kGold,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withOpacity(0.08),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.15),
+                                width: 1,
+                              ),
+                            ),
+                            child: const Icon(
+                              Icons.close,
+                              color: Colors.white70,
+                              size: 18,
+                            ),
                           ),
                         ),
                       ),
                     ),
 
+                    // ── T&Cs ──────────────────────────────────
+                    Positioned(
+                      top: 18,
+                      right: 20,
+                      child: Opacity(
+                        opacity: bg,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(20),
+                            color: _kGold.withOpacity(0.12),
+                            border: Border.all(
+                              color: _kGold.withOpacity(0.30),
+                              width: 1,
+                            ),
+                          ),
+                          child: const Text(
+                            'T&Cs',
+                            style: TextStyle(
+                              color: _kGold,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    // ── Gold bottom line ──────────────────────
                     Positioned(
                       bottom: 0,
                       left: 0,
@@ -909,111 +1001,810 @@ class _WelcomeGiftScreenState extends State<WelcomeGiftScreen>
 }
 
 // ─────────────────────────────────────────────────────────────
-//  PAINTERS
+//  SLOT RAYS PAINTER
+//  Light rays that shoot upward from the slot mouth during eject
 // ─────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────
-//  SIDE GLOW PAINTER
-//  Soft blurred glow on left, right, and top sides only.
-//  Bottom edge stays clean/sharp.
-// ─────────────────────────────────────────────────────────────
-
-class _SideGlowPainter extends CustomPainter {
-  final double p;
-  const _SideGlowPainter(this.p);
+class _SlotRaysPainter extends CustomPainter {
+  final double progress; // 0→1
+  final double screenWidth;
+  const _SlotRaysPainter({required this.progress, required this.screenWidth});
 
   @override
-  void paint(Canvas canvas, Size s) {
-    final cx = s.width / 2;
-    final cy = s.height / 2;
-    final blur = 35.0 * p;
-
-    // Left side glow
-    canvas.drawRect(
-      Rect.fromLTWH(0, cy - _kH / 2 - 30, cx - _kW / 2 + 10, _kH + 60),
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.centerRight,
-          end: Alignment.centerLeft,
-          colors: [
-            _kGold.withOpacity(0.75 * p),
-            _kGold.withOpacity(0.0),
-          ],
-        ).createShader(
-          Rect.fromLTWH(0, cy - _kH / 2 - 30, cx - _kW / 2 + 10, _kH + 60),
-        )
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, blur),
-    );
-
-    // Right side glow
-    final rx = cx + _kW / 2 - 10;
-    canvas.drawRect(
-      Rect.fromLTWH(rx, cy - _kH / 2 - 30, cx - _kW / 2 + 10, _kH + 60),
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [
-            _kGold.withOpacity(0.75 * p),
-            _kGold.withOpacity(0.0),
-          ],
-        ).createShader(
-          Rect.fromLTWH(rx, cy - _kH / 2 - 30, cx - _kW / 2 + 10, _kH + 60),
-        )
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, blur),
-    );
-
-    // Top glow
-    final topH = cy - _kH / 2 + 10;
-    if (topH > 0) {
-      canvas.drawRect(
-        Rect.fromLTWH(cx - _kW / 2 - 30, 0, _kW + 60, topH),
+  void paint(Canvas canvas, Size size) {
+    final cx = screenWidth / 2;
+    final p = progress;
+    const numRays = 8;
+    for (int i = 0; i < numRays; i++) {
+      final angle = -math.pi / 2 + (i - (numRays - 1) / 2.0) * 0.22;
+      final len = 30.0 + p * 100.0;
+      final alpha = p * 0.55 * (0.5 + 0.5 * math.sin(i * 1.3));
+      final x2 = cx + math.cos(angle) * len;
+      final y2 = math.sin(angle) * len;
+      canvas.drawLine(
+        Offset(cx, 0),
+        Offset(x2, y2.abs()),
         Paint()
-          ..shader = LinearGradient(
-            begin: Alignment.bottomCenter,
-            end: Alignment.topCenter,
-            colors: [
-              _kGold.withOpacity(0.75 * p),
-              _kGold.withOpacity(0.0),
-            ],
-          ).createShader(
-            Rect.fromLTWH(cx - _kW / 2 - 30, 0, _kW + 60, topH),
-          )
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, blur),
+          ..color = _kGold.withOpacity(alpha)
+          ..strokeWidth = 0.8 + p * 1.4
+          ..strokeCap = StrokeCap.round,
       );
     }
+    // horizontal spread glow at origin
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset(cx, 0), width: 160 * p, height: 14 * p),
+      Paint()
+        ..color = _kGold.withOpacity(p * 0.35)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
+    );
   }
 
   @override
-  bool shouldRepaint(_SideGlowPainter o) => o.p != p;
+  bool shouldRepaint(_SlotRaysPainter o) =>
+      o.progress != progress || o.screenWidth != screenWidth;
 }
 
 // ─────────────────────────────────────────────────────────────
-//  HOLE MASK PAINTER
+//  EJECTED CARD WIDGET
+//  The full activated card that pops out of the slot.
+//  Includes gold glow halo and "ACTIVE" green stamp.
+// ─────────────────────────────────────────────────────────────
+
+class _EjectedCard extends StatelessWidget {
+  final GiftCard card;
+  final double glowAlpha;
+  final double stampAlpha;
+
+  const _EjectedCard({
+    required this.card,
+    required this.glowAlpha,
+    required this.stampAlpha,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // gold glow halo behind card
+        if (glowAlpha > 0)
+          Container(
+            width: 290,
+            height: 380,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color: _kGold.withOpacity(glowAlpha * 0.55),
+                  blurRadius: 40,
+                  spreadRadius: 8,
+                ),
+                BoxShadow(
+                  color: _kPurple.withOpacity(glowAlpha * 0.30),
+                  blurRadius: 60,
+                  spreadRadius: 12,
+                ),
+              ],
+            ),
+          ),
+
+        // card body
+        ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: Container(
+            width: 270,
+            height: 355,
+            color: card.bg,
+            child: Stack(
+              children: [
+                // decorative blobs
+                Positioned(
+                  top: -40,
+                  right: -40,
+                  child: _blob(150, Colors.white.withOpacity(0.07)),
+                ),
+                Positioned(
+                  bottom: -30,
+                  left: -30,
+                  child: _blob(120, Colors.white.withOpacity(0.05)),
+                ),
+
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 48, 20, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // brand name
+                      Text(
+                        card.name,
+                        style: TextStyle(
+                          color: card.textColor.withOpacity(0.75),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      // cashback amount
+                      Text(
+                        card.line1,
+                        style: TextStyle(
+                          color: card.textColor,
+                          fontSize: 54,
+                          fontWeight: FontWeight.w900,
+                          height: 1.0,
+                        ),
+                      ),
+                      Text(
+                        card.line2,
+                        style: TextStyle(
+                          color: card.textColor.withOpacity(0.9),
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Use FamPay to shop on ${card.name}',
+                        style: TextStyle(
+                          color: card.textColor.withOpacity(0.70),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 16),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.20),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'Expires on 27 Jan',
+                          style: TextStyle(
+                            color: card.textColor.withOpacity(0.8),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ── ACTIVE STAMP — fades in after card settles ──
+                if (stampAlpha > 0)
+                  Positioned(
+                    top: 14,
+                    right: 14,
+                    child: Opacity(
+                      opacity: stampAlpha,
+                      child: Transform.rotate(
+                        angle: -0.25,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF44FF88).withOpacity(0.18),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: const Color(0xFF44FF88).withOpacity(0.85),
+                              width: 1.5,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF44FF88).withOpacity(0.3),
+                                blurRadius: 12,
+                                spreadRadius: 2,
+                              ),
+                            ],
+                          ),
+                          child: const Text(
+                            'ACTIVE',
+                            style: TextStyle(
+                              color: Color(0xFF44FF88),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _blob(double s, Color c) => Container(
+    width: s,
+    height: s,
+    decoration: BoxDecoration(shape: BoxShape.circle, color: c),
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+//  ★ COIN SLOT PAINTER ★
+//
+//  Slot machine / ATM card-insert vibe.
+//  Layers (back → front):
+//   1. Dark recessed slot throat (deep interior behind the slot)
+//   2. Scan-line pulse (moving light inside slot)
+//   3. Dot indicators (5 dots along slot mouth, light up on drag)
+//   4. Card color glow bleed (slot tints with inserted card's color)
+//   5. Slot housing — bevelled metal frame with 3D top/bottom faces
+//   6. Slot mouth — thin horizontal gap, inner shadow for depth
+//   7. Gold rim + glow intensifies with drag progress
+//   8. Side panel screws (machine detail)
+//   9. Background surface gradient (app bg)
+//  10. Readout display — "INSERT CARD" → progress bar → "ACCEPTED"
+// ─────────────────────────────────────────────────────────────
+
+class _CoinSlotPainter extends CustomPainter {
+  final double progress; // 0..1 from drag
+  final double pulse; // 0..1 slow sine from AnimationController
+  final double cardWidth;
+  final Color cardColor; // current card's bg color
+
+  const _CoinSlotPainter({
+    required this.progress,
+    required this.pulse,
+    required this.cardWidth,
+    required this.cardColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final p = progress;
+    final pulseMod = 0.5 + 0.5 * pulse;
+
+    // ── Slot dimensions ───────────────────────────────────
+    // The slot housing is a wide rectangular unit, centered
+    const housingW = 260.0; // full machine housing width
+    const housingH = 72.0; // total housing height
+    const housingBR = 14.0; // housing border radius
+    const slotW = 200.0; // actual card-insert opening width
+    const slotH = 10.0; // slot gap height (thin like a real ATM)
+    const slotBR = 4.0; // slight rounding on slot corners
+    final hx = cx - housingW / 2; // housing left x
+    final hy = 18.0; // housing top y (gives room for glow above)
+    final slotX = cx - slotW / 2;
+    final slotY =
+        hy + (housingH - slotH) / 2; // slot vertically centered in housing
+
+    // ─────────────────────────────────────────────────────
+    // 1. DEEP SLOT THROAT — recessed darkness behind opening
+    // ─────────────────────────────────────────────────────
+    final throatPath = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(slotX - 2, slotY - 1, slotW + 4, slotH + 2),
+          const Radius.circular(slotBR),
+        ),
+      );
+    canvas.drawPath(throatPath, Paint()..color = const Color(0xFF010108));
+    // inner top shadow — depth illusion
+    canvas.drawRect(
+      Rect.fromLTWH(slotX, slotY, slotW, slotH * 0.4),
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(0, slotY),
+          Offset(0, slotY + slotH * 0.4),
+          [Colors.black.withOpacity(0.80), Colors.transparent],
+          [0.0, 1.0],
+        ),
+    );
+    // inner bottom highlight — thin bright line at floor of slot
+    canvas.drawRect(
+      Rect.fromLTWH(slotX + 4, slotY + slotH - 2, slotW - 8, 1.5),
+      Paint()..color = Colors.white.withOpacity(0.08),
+    );
+
+    // ─────────────────────────────────────────────────────
+    // 2. SCAN-LINE PULSE — moving horizontal beam inside slot
+    //    Runs left→right continuously, speeds up with drag
+    // ─────────────────────────────────────────────────────
+    if (p > 0) {
+      final scanSpeed = 0.4 + p * 0.5;
+      final scanX = slotX + ((pulse * scanSpeed * slotW * 3) % slotW);
+      final scanAlpha = (p * 0.85 * pulseMod).clamp(0.0, 1.0);
+      // beam
+      canvas.drawRect(
+        Rect.fromLTWH(scanX - 18, slotY + 1, 36, slotH - 2),
+        Paint()
+          ..shader = ui.Gradient.linear(
+            Offset(scanX - 18, 0),
+            Offset(scanX + 18, 0),
+            [
+              Colors.transparent,
+              _kGold.withOpacity(scanAlpha * 0.9),
+              Colors.white.withOpacity(scanAlpha),
+              _kGold.withOpacity(scanAlpha * 0.9),
+              Colors.transparent,
+            ],
+            [0.0, 0.3, 0.5, 0.7, 1.0],
+          ),
+      );
+      // scan glow blur layer
+      canvas.drawRect(
+        Rect.fromLTWH(scanX - 30, slotY - 2, 60, slotH + 4),
+        Paint()
+          ..color = _kGold.withOpacity(scanAlpha * 0.3)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+      );
+    }
+
+    // ─────────────────────────────────────────────────────
+    // 3. DOT INDICATORS — 5 dots below slot, light up L→R with progress
+    // ─────────────────────────────────────────────────────
+    const dotCount = 5;
+    const dotR = 3.5;
+    const dotGap = 18.0;
+    final dotStartX = cx - (dotCount - 1) * dotGap / 2;
+    final dotY = slotY + slotH + 14.0;
+    for (int i = 0; i < dotCount; i++) {
+      final dx = dotStartX + i * dotGap;
+      final lit = p * dotCount > i; // lights up sequentially
+      final litFrac = (p * dotCount - i).clamp(0.0, 1.0).toDouble();
+
+      // outer ring
+      canvas.drawCircle(
+        Offset(dx, dotY),
+        dotR + 1,
+        Paint()
+          ..color = _kGold.withOpacity(0.12 + litFrac * 0.25)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.8,
+      );
+      // filled dot
+      canvas.drawCircle(
+        Offset(dx, dotY),
+        dotR,
+        Paint()
+          ..color = lit
+              ? _kGold.withOpacity(0.5 + litFrac * 0.5)
+              : const Color(0xFF1A1540),
+      );
+      // glow on lit dots
+      if (lit && litFrac > 0.3) {
+        canvas.drawCircle(
+          Offset(dx, dotY),
+          dotR + 3,
+          Paint()
+            ..color = _kGold.withOpacity(litFrac * 0.35)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+        );
+      }
+    }
+
+    // ─────────────────────────────────────────────────────
+    // 4. CARD COLOR BLEED — slot glows with card's color
+    // ─────────────────────────────────────────────────────
+    if (p > 0.1) {
+      final bleedAlpha = ((p - 0.1) / 0.9 * 0.30).clamp(0.0, 0.30).toDouble();
+      canvas.drawRect(
+        Rect.fromLTWH(slotX, slotY, slotW, slotH),
+        Paint()..color = cardColor.withOpacity(bleedAlpha),
+      );
+      // color bleeds outward above/below slot
+      canvas.drawRect(
+        Rect.fromLTWH(slotX + 10, slotY - 8, slotW - 20, 10),
+        Paint()
+          ..shader = ui.Gradient.linear(
+            Offset(0, slotY - 8),
+            Offset(0, slotY),
+            [Colors.transparent, cardColor.withOpacity(bleedAlpha * 0.5)],
+            [0.0, 1.0],
+          ),
+      );
+    }
+
+    // ─────────────────────────────────────────────────────
+    // 5. SLOT HOUSING — bevelled metal body
+    //    Three faces: top bevel, bottom bevel, front face
+    // ─────────────────────────────────────────────────────
+
+    // Front face (main housing body)
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(hx, hy, housingW, housingH),
+        const Radius.circular(housingBR),
+      ),
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(cx, hy),
+          Offset(cx, hy + housingH),
+          [
+            const Color(0xFF1C1845),
+            const Color(0xFF151230),
+            const Color(0xFF0E0C22),
+          ],
+          [0.0, 0.5, 1.0],
+        ),
+    );
+
+    // Top bevel face — lit edge (3D top surface)
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(hx + 2, hy + 2, housingW - 4, 10),
+        const Radius.circular(housingBR - 2),
+      ),
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(0, hy + 2),
+          Offset(0, hy + 12),
+          [Colors.white.withOpacity(0.12), Colors.transparent],
+          [0.0, 1.0],
+        ),
+    );
+
+    // Bottom bevel — shadow face
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(hx + 2, hy + housingH - 10, housingW - 4, 10),
+        const Radius.circular(housingBR - 2),
+      ),
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(0, hy + housingH - 10),
+          Offset(0, hy + housingH),
+          [Colors.transparent, Colors.black.withOpacity(0.40)],
+          [0.0, 1.0],
+        ),
+    );
+
+    // Left edge shadow (side face)
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(hx, hy, 18, housingH),
+        const Radius.circular(housingBR),
+      ),
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(hx, 0),
+          Offset(hx + 18, 0),
+          [Colors.black.withOpacity(0.35), Colors.transparent],
+          [0.0, 1.0],
+        ),
+    );
+
+    // Right edge shadow (side face)
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(hx + housingW - 18, hy, 18, housingH),
+        const Radius.circular(housingBR),
+      ),
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(hx + housingW - 18, 0),
+          Offset(hx + housingW, 0),
+          [Colors.transparent, Colors.black.withOpacity(0.35)],
+          [0.0, 1.0],
+        ),
+    );
+
+    // ─────────────────────────────────────────────────────
+    // 6. SLOT MOUTH — the actual card-insert gap
+    //    Punched through the housing face
+    // ─────────────────────────────────────────────────────
+
+    // Outer slot cutout (slightly larger, darker border)
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(slotX - 3, slotY - 3, slotW + 6, slotH + 6),
+        const Radius.circular(slotBR + 2),
+      ),
+      Paint()..color = const Color(0xFF07051A),
+    );
+
+    // Inner slot void
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(slotX, slotY, slotW, slotH),
+        const Radius.circular(slotBR),
+      ),
+      Paint()..color = const Color(0xFF010108),
+    );
+
+    // Slot top inner-edge shadow
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(slotX, slotY, slotW, slotH * 0.45),
+        const Radius.circular(slotBR),
+      ),
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(0, slotY),
+          Offset(0, slotY + slotH * 0.45),
+          [Colors.black.withOpacity(0.70), Colors.transparent],
+          [0.0, 1.0],
+        ),
+    );
+
+    // ─────────────────────────────────────────────────────
+    // 7. GOLD RIM + GLOW — housing border brightens with drag
+    // ─────────────────────────────────────────────────────
+    final rimAlpha = 0.35 + p * 0.60;
+    final rimBlur = p * 18.0;
+
+    // Outer glow
+    if (p > 0) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(hx - 1, hy - 1, housingW + 2, housingH + 2),
+          const Radius.circular(housingBR + 1),
+        ),
+        Paint()
+          ..color = _kGold.withOpacity(p * 0.55)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3 + p * 3
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, rimBlur),
+      );
+    }
+
+    // Crisp housing border
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(hx, hy, housingW, housingH),
+        const Radius.circular(housingBR),
+      ),
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(hx, hy),
+          Offset(hx + housingW, hy + housingH),
+          [
+            _kGold.withOpacity(rimAlpha),
+            Colors.white.withOpacity(rimAlpha * 0.6),
+            _kGold.withOpacity(rimAlpha * 0.8),
+            _kGold.withOpacity(rimAlpha),
+          ],
+          [0.0, 0.35, 0.65, 1.0],
+        )
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5 + p * 0.8,
+    );
+
+    // Slot mouth rim — tight gold line around the opening
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(slotX - 1, slotY - 1, slotW + 2, slotH + 2),
+        const Radius.circular(slotBR + 1),
+      ),
+      Paint()
+        ..color = _kGold.withOpacity(0.30 + p * 0.55)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8 + p * 0.6,
+    );
+
+    // ─────────────────────────────────────────────────────
+    // 8. SCREWS — four corner detail bolts on housing face
+    // ─────────────────────────────────────────────────────
+    final screwPositions = [
+      Offset(hx + 12, hy + 12),
+      Offset(hx + housingW - 12, hy + 12),
+      Offset(hx + 12, hy + housingH - 12),
+      Offset(hx + housingW - 12, hy + housingH - 12),
+    ];
+    for (final sp in screwPositions) {
+      // screw head circle
+      canvas.drawCircle(
+        sp,
+        4.5,
+        Paint()
+          ..shader = ui.Gradient.radial(
+            sp,
+            4.5,
+            [const Color(0xFF2A2650), const Color(0xFF0D0B1E)],
+            [0.0, 1.0],
+          ),
+      );
+      // screw ring
+      canvas.drawCircle(
+        sp,
+        4.5,
+        Paint()
+          ..color = _kGold.withOpacity(0.25 + p * 0.20)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.8,
+      );
+      // cross notch horizontal
+      canvas.drawLine(
+        Offset(sp.dx - 2.5, sp.dy),
+        Offset(sp.dx + 2.5, sp.dy),
+        Paint()
+          ..color = _kGold.withOpacity(0.30)
+          ..strokeWidth = 0.7,
+      );
+      // cross notch vertical
+      canvas.drawLine(
+        Offset(sp.dx, sp.dy - 2.5),
+        Offset(sp.dx, sp.dy + 2.5),
+        Paint()
+          ..color = _kGold.withOpacity(0.30)
+          ..strokeWidth = 0.7,
+      );
+    }
+
+    // ─────────────────────────────────────────────────────
+    // 9. BACKGROUND SURFACE — app bg gradient fills rest
+    // ─────────────────────────────────────────────────────
+    final bgPath = Path()
+      ..addRect(Rect.fromLTWH(-10, -10, size.width + 20, size.height + 20))
+      ..addRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(hx - 2, hy - 2, housingW + 4, housingH + 4),
+          const Radius.circular(housingBR + 2),
+        ),
+      )
+      ..fillType = PathFillType.evenOdd;
+
+    canvas.drawPath(
+      bgPath,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(0, 0),
+          Offset(0, size.height),
+          [
+            const Color(0xFF1A1040).withOpacity(0.0),
+            const Color(0xFF1A1040).withOpacity(0.96),
+            const Color(0xFF0D0B1E),
+          ],
+          [0.0, 0.16, 1.0],
+        ),
+    );
+
+    // ─────────────────────────────────────────────────────
+    // 10. READOUT DISPLAY — small LCD-style text above slot
+    //     idle: "INSERT CARD"   dragging: progress bar   done: "ACCEPTED ✓"
+    // ─────────────────────────────────────────────────────
+    final displayY = hy - 36.0;
+    const displayW = 160.0;
+    const displayH = 22.0;
+    final displayX = cx - displayW / 2;
+
+    // Display background (LCD panel look)
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(displayX, displayY, displayW, displayH),
+        const Radius.circular(4),
+      ),
+      Paint()..color = const Color(0xFF050A14),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(displayX, displayY, displayW, displayH),
+        const Radius.circular(4),
+      ),
+      Paint()
+        ..color = _kGold.withOpacity(0.20 + p * 0.30)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8,
+    );
+
+    if (p < 0.05) {
+      // "INSERT CARD" text segments — drawn as pixel-art lines
+      _drawPixelText(
+        canvas,
+        'INSERT CARD',
+        cx,
+        displayY + displayH / 2,
+        _kGold.withOpacity(0.45),
+      );
+    } else if (p >= 0.95) {
+      // ACCEPTED
+      _drawPixelText(
+        canvas,
+        'ACCEPTED  OK',
+        cx,
+        displayY + displayH / 2,
+        const Color(0xFF44FF88).withOpacity(0.85),
+      );
+    } else {
+      // Progress bar
+      final barX = displayX + 10;
+      const barH = 5.0;
+      final barY = displayY + (displayH - barH) / 2;
+      final barW = displayW - 20;
+      // track
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(barX, barY, barW, barH),
+          const Radius.circular(3),
+        ),
+        Paint()..color = const Color(0xFF1A2040),
+      );
+      // fill
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(barX, barY, barW * p, barH),
+          const Radius.circular(3),
+        ),
+        Paint()
+          ..shader = ui.Gradient.linear(
+            Offset(barX, 0),
+            Offset(barX + barW, 0),
+            [_kGold, const Color(0xFFFFFFAA)],
+            [0.0, 1.0],
+          ),
+      );
+      // glow on fill tip
+      if (p > 0.05) {
+        canvas.drawCircle(
+          Offset(barX + barW * p, barY + barH / 2),
+          4,
+          Paint()
+            ..color = _kGold.withOpacity(0.6 * pulseMod)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+        );
+      }
+    }
+  }
+
+  // Simple pixel-text renderer — draws text as tiny gold rectangles
+  // so it looks like a real LCD readout without needing TextPainter
+  void _drawPixelText(
+    Canvas canvas,
+    String text,
+    double cx,
+    double cy,
+    Color color,
+  ) {
+    final tp = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          color: color,
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.5,
+          fontFamily: 'monospace',
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      textAlign: TextAlign.center,
+    )..layout();
+    tp.paint(canvas, Offset(cx - tp.width / 2, cy - tp.height / 2));
+  }
+
+  @override
+  bool shouldRepaint(_CoinSlotPainter o) =>
+      o.progress != progress ||
+      o.pulse != pulse ||
+      o.cardColor != cardColor ||
+      o.cardWidth != cardWidth;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  STANDARD PAINTERS
 // ─────────────────────────────────────────────────────────────
 
 class _HoleMaskPainter extends CustomPainter {
   final double opacity;
   const _HoleMaskPainter({required this.opacity});
-
   static const _r = Radius.circular(20);
-
   @override
   void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final cy = size.height / 2;
+    final cx = size.width / 2, cy = size.height / 2;
     final rect = RRect.fromRectAndRadius(
       Rect.fromCenter(center: Offset(cx, cy), width: _kW, height: _kH),
       _r,
     );
-
     canvas.saveLayer(
       Rect.fromLTWH(0, 0, size.width, size.height),
       Paint()..color = Colors.white.withOpacity(opacity),
     );
-
     canvas.drawRRect(rect, Paint()..color = const Color(0xFF060404));
-
     canvas.drawRRect(
       rect,
       Paint()
@@ -1021,7 +1812,6 @@ class _HoleMaskPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3.5,
     );
-
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromCenter(
@@ -1035,7 +1825,6 @@ class _HoleMaskPainter extends CustomPainter {
         ..color = Colors.black.withOpacity(0.6)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
     );
-
     canvas.restore();
   }
 
@@ -1043,7 +1832,6 @@ class _HoleMaskPainter extends CustomPainter {
   bool shouldRepaint(_HoleMaskPainter o) => o.opacity != opacity;
 }
 
-// Confetti
 class _ConfettiPainter extends CustomPainter {
   final List<_Particle> particles;
   const _ConfettiPainter({required this.particles});
@@ -1055,9 +1843,9 @@ class _ConfettiPainter extends CustomPainter {
       canvas.translate(cx + p.x, cy + p.y);
       canvas.rotate(p.angle);
       final paint = Paint()..color = p.color;
-      if (p.circle) {
+      if (p.circle)
         canvas.drawCircle(Offset.zero, p.size / 2, paint);
-      } else {
+      else
         canvas.drawRect(
           Rect.fromCenter(
             center: Offset.zero,
@@ -1066,86 +1854,12 @@ class _ConfettiPainter extends CustomPainter {
           ),
           paint,
         );
-      }
       canvas.restore();
     }
   }
 
   @override
   bool shouldRepaint(_) => true;
-}
-
-// Wave-pill bottom bar
-class _WavePillBar extends StatelessWidget {
-  final double progress;
-  const _WavePillBar({required this.progress});
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 36,
-      child: CustomPaint(painter: _WavePainter(progress)),
-    );
-  }
-}
-
-class _WavePainter extends CustomPainter {
-  final double p;
-  const _WavePainter(this.p);
-  @override
-  void paint(Canvas canvas, Size s) {
-    final path = _makePath(s);
-    final color = Color.lerp(
-      Colors.white.withOpacity(0.25),
-      _kGold.withOpacity(0.9),
-      p,
-    )!;
-    if (p > 0) {
-      canvas.drawPath(
-        path,
-        Paint()
-          ..color = _kGold.withOpacity(0.6 * p)
-          ..strokeWidth = 6
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
-      );
-    }
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = color
-        ..strokeWidth = 2.8
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round,
-    );
-  }
-
-  Path _makePath(Size s) {
-    final cx = s.width / 2, cy = s.height / 2;
-    final dip = 10.0 + p * 6;
-    const hw = 50.0, curve = 28.0;
-    final end = s.width * 0.5 - 10;
-    return Path()
-      ..moveTo(cx - end, cy)
-      ..lineTo(cx - hw - curve, cy)
-      ..cubicTo(
-        cx - hw - curve + 20, cy,
-        cx - hw - 8, cy + dip,
-        cx - hw, cy + dip,
-      )
-      ..lineTo(cx + hw, cy + dip)
-      ..cubicTo(
-        cx + hw + 8, cy + dip,
-        cx + hw + curve - 20, cy,
-        cx + hw + curve, cy,
-      )
-      ..lineTo(cx + end, cy);
-  }
-
-  @override
-  bool shouldRepaint(_WavePainter o) => o.p != p;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1160,9 +1874,9 @@ class _ActivatingText extends StatelessWidget {
     shaderCallback: (b) => LinearGradient(
       colors: const [_kGold, Colors.white, _kGold],
       stops: [
-        (progress - 0.3).clamp(0, 1),
-        progress.clamp(0, 1),
-        (progress + 0.3).clamp(0, 1),
+        (progress - 0.3).clamp(0.0, 1.0).toDouble(),
+        progress.clamp(0.0, 1.0).toDouble(),
+        (progress + 0.3).clamp(0.0, 1.0).toDouble(),
       ],
     ).createShader(b),
     child: const Text(
@@ -1182,115 +1896,112 @@ class _ActivatedCard extends StatelessWidget {
   final GiftCard card;
   const _ActivatedCard({required this.card});
   @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: Container(
-        width: 270,
-        height: 355,
-        color: card.bg,
-        child: Stack(
-          children: [
-            Positioned(
-              top: -40,
-              right: -40,
-              child: _blob(150, Colors.white.withOpacity(0.07)),
-            ),
-            Positioned(
-              bottom: -30,
-              left: -30,
-              child: _blob(120, Colors.white.withOpacity(0.05)),
-            ),
-            const Positioned(
-              top: 16,
-              right: 16,
-              child: Text('🎧', style: TextStyle(fontSize: 22)),
-            ),
-            const Positioned(
-              top: 16,
-              left: 16,
-              child: Text('🛍️', style: TextStyle(fontSize: 18)),
-            ),
-            const Positioned(
-              bottom: 64,
-              right: 18,
-              child: Text('➡️', style: TextStyle(fontSize: 16)),
-            ),
-            const Positioned(
-              bottom: 72,
-              left: 18,
-              child: Text('📦', style: TextStyle(fontSize: 20)),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 56, 20, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    card.name,
-                    style: TextStyle(
-                      color: card.textColor.withOpacity(0.75),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.5,
-                    ),
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(24),
+    child: Container(
+      width: 270,
+      height: 355,
+      color: card.bg,
+      child: Stack(
+        children: [
+          Positioned(
+            top: -40,
+            right: -40,
+            child: _blob(150, Colors.white.withOpacity(0.07)),
+          ),
+          Positioned(
+            bottom: -30,
+            left: -30,
+            child: _blob(120, Colors.white.withOpacity(0.05)),
+          ),
+          const Positioned(
+            top: 16,
+            right: 16,
+            child: Text('🎧', style: TextStyle(fontSize: 22)),
+          ),
+          const Positioned(
+            top: 16,
+            left: 16,
+            child: Text('🛍️', style: TextStyle(fontSize: 18)),
+          ),
+          const Positioned(
+            bottom: 64,
+            right: 18,
+            child: Text('➡️', style: TextStyle(fontSize: 16)),
+          ),
+          const Positioned(
+            bottom: 72,
+            left: 18,
+            child: Text('📦', style: TextStyle(fontSize: 20)),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 56, 20, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  card.name,
+                  style: TextStyle(
+                    color: card.textColor.withOpacity(0.75),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.5,
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    card.line1,
-                    style: TextStyle(
-                      color: card.textColor,
-                      fontSize: 54,
-                      fontWeight: FontWeight.w900,
-                      height: 1.0,
-                    ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  card.line1,
+                  style: TextStyle(
+                    color: card.textColor,
+                    fontSize: 54,
+                    fontWeight: FontWeight.w900,
+                    height: 1.0,
                   ),
-                  Text(
-                    card.line2,
-                    style: TextStyle(
-                      color: card.textColor.withOpacity(0.9),
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                    ),
+                ),
+                Text(
+                  card.line2,
+                  style: TextStyle(
+                    color: card.textColor.withOpacity(0.9),
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Use FamPay to shop on ${card.name}',
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Use FamPay to shop on ${card.name}',
+                  style: TextStyle(
+                    color: card.textColor.withOpacity(0.70),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const Spacer(),
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    'Expires on 27 Jan',
                     style: TextStyle(
-                      color: card.textColor.withOpacity(0.70),
-                      fontSize: 13,
+                      color: card.textColor.withOpacity(0.8),
+                      fontSize: 12,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
-                  const Spacer(),
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 7,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      'Expires on 27 Jan',
-                      style: TextStyle(
-                        color: card.textColor.withOpacity(0.8),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
-    );
-  }
-
+    ),
+  );
   Widget _blob(double s, Color c) => Container(
     width: s,
     height: s,
@@ -1309,9 +2020,16 @@ class _GiftIcon extends StatelessWidget {
     width: 56,
     height: 56,
     decoration: BoxDecoration(
-      color: const Color(0xFF252018),
+      color: const Color(0xFF1E1650),
       borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: _kGold.withOpacity(0.30), width: 1),
+      border: Border.all(color: _kGold.withOpacity(0.35), width: 1),
+      boxShadow: [
+        BoxShadow(
+          color: _kPurple.withOpacity(0.25),
+          blurRadius: 12,
+          spreadRadius: 2,
+        ),
+      ],
     ),
     child: CustomPaint(painter: _GiftPainter()),
   );
@@ -1330,7 +2048,7 @@ class _GiftPainter extends CustomPainter {
     final g = Paint()..color = _kGold;
     canvas.drawRect(Rect.fromLTWH(cx - 3, cy - 13, 6, 32), g);
     canvas.drawRect(Rect.fromLTWH(cx - 15, cy - 9, 30, 5), g);
-    for (final sign in [-1.0, 1.0]) {
+    for (final sign in [-1.0, 1.0])
       canvas.drawPath(
         Path()
           ..moveTo(cx, cy - 13)
@@ -1338,7 +2056,6 @@ class _GiftPainter extends CustomPainter {
           ..close(),
         g,
       );
-    }
   }
 
   @override
@@ -1352,78 +2069,73 @@ class _GiftPainter extends CustomPainter {
 class _CardWidget extends StatelessWidget {
   final GiftCard card;
   const _CardWidget({required this.card});
-
   @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        width: _kW,
-        height: _kH,
-        color: card.bg,
-        child: Stack(
-          children: [
-            Positioned(
-              top: -30,
-              right: -30,
-              child: _blob(120, Colors.white.withOpacity(0.07)),
-            ),
-            Positioned(
-              bottom: -20,
-              left: -20,
-              child: _blob(90, Colors.white.withOpacity(0.05)),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _logo(),
-                  const SizedBox(height: 14),
-                  Text(
-                    card.line1,
-                    style: TextStyle(
-                      color: card.textColor,
-                      fontSize: 36,
-                      fontWeight: FontWeight.w900,
-                      height: 1.0,
-                    ),
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(20),
+    child: Container(
+      width: _kW,
+      height: _kH,
+      color: card.bg,
+      child: Stack(
+        children: [
+          Positioned(
+            top: -30,
+            right: -30,
+            child: _blob(120, Colors.white.withOpacity(0.07)),
+          ),
+          Positioned(
+            bottom: -20,
+            left: -20,
+            child: _blob(90, Colors.white.withOpacity(0.05)),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _logo(),
+                const SizedBox(height: 14),
+                Text(
+                  card.line1,
+                  style: TextStyle(
+                    color: card.textColor,
+                    fontSize: 36,
+                    fontWeight: FontWeight.w900,
+                    height: 1.0,
                   ),
-                  Text(
-                    card.line2,
-                    style: TextStyle(
-                      color: card.textColor.withOpacity(0.9),
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      height: 1.2,
-                    ),
+                ),
+                Text(
+                  card.line2,
+                  style: TextStyle(
+                    color: card.textColor.withOpacity(0.9),
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    height: 1.2,
                   ),
-                  Text(
-                    card.line3,
-                    style: TextStyle(
-                      color: card.textColor.withOpacity(0.85),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      height: 1.3,
-                    ),
+                ),
+                Text(
+                  card.line3,
+                  style: TextStyle(
+                    color: card.textColor.withOpacity(0.85),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    height: 1.3,
                   ),
-                  const Spacer(),
-                  _illus(),
-                ],
-              ),
+                ),
+                const Spacer(),
+                _illus(),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
-    );
-  }
-
+    ),
+  );
   Widget _blob(double s, Color c) => Container(
     width: s,
     height: s,
     decoration: BoxDecoration(shape: BoxShape.circle, color: c),
   );
-
   Widget _logo() {
     switch (card.brand) {
       case _Brand.amazon:
@@ -1482,7 +2194,6 @@ class _CardWidget extends StatelessWidget {
       ),
     ],
   );
-
   Widget _badge(String t, Color bg, Color fg, double fs) => Container(
     width: 22,
     height: 22,
@@ -1494,7 +2205,6 @@ class _CardWidget extends StatelessWidget {
       ),
     ),
   );
-
   Widget _illus() {
     switch (card.brand) {
       case _Brand.amazon:
